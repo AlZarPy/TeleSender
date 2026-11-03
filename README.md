@@ -16,7 +16,7 @@
 - **`--dry-run`** — план без обращения к Telegram
 - **`--limit`**, `--min-delay`, `--max-delay` — контроль объёма и темпа
 - Лимит на аккаунт (`max_per_account`) и паузы настраиваются в конфиге
-- Тесты без сети: `python tests/test_smoke.py`
+- Тесты без сети: `python tests/test_smoke.py` и `python tests/test_sender_mock.py`
 
 ## Установка
 
