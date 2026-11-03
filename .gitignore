@@ -1,0 +1,12 @@
+# секреты и рабочие данные
+config.txt
+*.session
+*.session-journal
+recipients.csv
+sent.jsonl
+*.log
+
+# окружение
+.venv/
+__pycache__/
+*.pyc

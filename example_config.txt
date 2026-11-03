@@ -1,6 +1,7 @@
-# Пример конфигурации аккаунтов для рассылки в TeleSender
-# Каждая строка — это отдельный аккаунт
+# Пример конфигурации аккаунтов SenderX. Скопируйте в config.txt (он в .gitignore).
 # Формат: session_name=...;api_id=...;api_hash=...;my_name=...
+# api_id/api_hash — https://my.telegram.org → API development tools
+# Необязательные поля: min_delay (20), max_delay (60), max_per_account (50)
 
 session_name=sender1;api_id=123456;api_hash=abcdef123456abcdef123456abcdef12;my_name=Александр
-session_name=sender2;api_id=654321;api_hash=123456abcdef123456abcdef123456ab;my_name=Ольга
+session_name=sender2;api_id=654321;api_hash=123456abcdef123456abcdef123456ab;my_name=Ольга;min_delay=30;max_delay=90;max_per_account=25
