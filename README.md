@@ -42,7 +42,7 @@ session_name=sender1;api_id=123456;api_hash=ВАШ_HASH;my_name=Александ
 
 `session_name` — имя файла сессии (`.session` создастся сам), `my_name` подставляется
 в `<МоёИмя>`. Необязательные `min_delay`/`max_delay`/`max_per_account` по умолчанию
-20 / 60 / 50.
+20 / 60 / 50. Если сеть блокирует Telegram — добавьте `proxy=` (см. ниже).
 
 3. Авторизуйте аккаунты — **запускайте сами, в своём терминале**:
 
@@ -52,6 +52,12 @@ python auth_login.py
 
 Телефон, код из Telegram и пароль 2FA вводятся скрыто и уходят только на
 api.telegram.org. Файлы `*.session` эквивалентны паролю — они в `.gitignore`.
+
+4. Проверьте связь до Telegram (можно и до входа):
+
+```bash
+python main.py --check-net
+```
 
 ## Получатели
 
@@ -95,6 +101,25 @@ python main.py --message-file message.txt
 | Дубли и мусор в CSV | Нормализация, дедупликация, отчёт об отброшенных строках |
 | Нет `requirements.txt`, сессии не игнорировались | `requirements.txt`, `.gitignore` |
 | Тестов не было | 25 проверок в `tests/test_smoke.py` |
+
+## Если Telegram недоступен
+
+В сетях, где TCP до дата-центров Telegram закрыт, вход и отправка падают с таймаутом.
+Диагностика: `python main.py --check-net`. Лечится прокси в строке аккаунта:
+
+```
+# SOCKS5 (локальный VPN-клиент или удалённый прокси)
+session_name=sender1;api_id=123456;api_hash=...;my_name=Александр;proxy=socks5://127.0.0.1:1080
+
+# SOCKS5 с паролем
+...;proxy=socks5://user:pass@host:1080
+
+# MTProxy (секрет выдаёт @MTProxybot)
+...;proxy=mtproxy://host:443/ee11223344556677
+```
+
+Прокси применяется и к `auth_login.py`, и к `main.py`. Для SOCKS5 нужен пакет
+`python-socks[asyncio]` (уже в `requirements.txt`).
 
 ## Ограничения и безопасность
 

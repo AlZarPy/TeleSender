@@ -21,6 +21,7 @@ from telethon.errors import (
 
 from config_loader import ConfigError, load_config_from_txt
 from io_utils import force_utf8
+from proxy_config import describe, parse_proxy
 
 
 def _utf8_stdout() -> None:
@@ -29,9 +30,11 @@ def _utf8_stdout() -> None:
 
 async def login(account: dict) -> bool:
     tag = f"{account['my_name']}/{account['session_name']}"
-    client = TelegramClient(account["session_name"], account["api_id"], account["api_hash"])
-    await client.connect()
+    proxy = parse_proxy(account.get("proxy"))
+    print(f"\n{tag}: сеть {describe(proxy)}")
+    client = TelegramClient(account["session_name"], account["api_id"], account["api_hash"], proxy=proxy)
     try:
+        await client.connect()
         if await client.is_user_authorized():
             me = await client.get_me()
             print(f"✓ {tag}: уже авторизован как @{me.username or me.id}")
@@ -64,6 +67,10 @@ async def login(account: dict) -> bool:
         me = await client.get_me()
         print(f"  ✅ вошли как @{me.username or me.id} ({me.first_name or ''})")
         return True
+    except (ConnectionError, OSError) as exc:
+        print(f"  ❌ Telegram недоступен ({type(exc).__name__}). "
+              f"Если сеть блокирует DC — добавьте proxy=socks5://host:port в config.txt")
+        return False
     finally:
         await client.disconnect()
 

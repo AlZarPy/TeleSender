@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import random
@@ -23,6 +24,7 @@ from telethon import TelegramClient
 from config_loader import ConfigError, load_config_from_txt
 from csv_loader import RecipientsError, load_recipients
 from io_utils import force_utf8
+from proxy_config import describe, parse_proxy
 from sender import FloodDetected, render, send_one
 
 DEFAULT_SENT_LOG = "sent.jsonl"
@@ -81,7 +83,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--yes", action="store_true", help="не спрашивать подтверждение")
     p.add_argument("--sent-log", default=DEFAULT_SENT_LOG, help="журнал отправленных (по умолчанию sent.jsonl)")
     p.add_argument("--ignore-history", action="store_true", help="не пропускать тех, кому уже отправляли")
+    p.add_argument("--check-net", action="store_true",
+                   help="проверить доступность Telegram (учитывая proxy=) и выйти")
     return p
+
+
+async def check_net(accounts: list[dict]) -> int:
+    """Пробует подключиться к Telegram, чтобы отличить блокировку сети от проблем в коде."""
+    account = accounts[0]
+    proxy = parse_proxy(account.get("proxy"))
+    print(f"Проверяю Telegram через: {describe(proxy)}")
+    client = TelegramClient(account["session_name"], account["api_id"], account["api_hash"], proxy=proxy)
+    started = time.time()
+    try:
+        await asyncio.wait_for(client.connect(), timeout=25)
+    except (asyncio.TimeoutError, ConnectionError, OSError) as exc:
+        print(f"❌ Не достучались за {time.time() - started:.1f} с: {type(exc).__name__}")
+        print("   Похоже на блокировку DC в этой сети. Добавьте в строку аккаунта proxy=…")
+        return 1
+    finally:
+        with contextlib.suppress(Exception):
+            await client.disconnect()
+    print(f"✅ Telegram отвечает за {time.time() - started:.1f} с")
+    return 0
 
 
 def resolve_message(args) -> str:
@@ -108,6 +132,9 @@ async def run(args) -> int:
         print("❌ В конфиге нет ни одного валидного отправителя")
         return 2
     print(f"👤 Отправителей: {len(accounts)}")
+
+    if getattr(args, "check_net", False):
+        return await check_net(accounts)
 
     recipients = load_recipients(args.recipients)
     if not recipients:
@@ -151,10 +178,16 @@ async def run(args) -> int:
         if not queue:
             break
         tag = account_tag(account)
-        print(f"\n🚀 Аккаунт {tag} ({account['session_name']})")
-        client = TelegramClient(account["session_name"], account["api_id"], account["api_hash"])
+        proxy = parse_proxy(account.get("proxy"))
+        print(f"\n🚀 Аккаунт {tag} ({account['session_name']}), сеть: {describe(proxy)}")
+        client = TelegramClient(account["session_name"], account["api_id"], account["api_hash"], proxy=proxy)
         try:
-            await client.connect()
+            try:
+                await client.connect()
+            except (ConnectionError, OSError) as exc:
+                print(f"❌ {tag}: Telegram недоступен ({type(exc).__name__}). "
+                      f"Если сеть блокирует DC — добавьте proxy=socks5://host:port в config.txt")
+                continue
             if not await client.is_user_authorized():
                 print(f"⚠️ {tag}: сессия не авторизована — запустите python auth_login.py")
                 continue

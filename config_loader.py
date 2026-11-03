@@ -15,6 +15,7 @@ import os
 CONFIG_PATH = "config.txt"
 REQUIRED = ("session_name", "api_id", "api_hash", "my_name")
 DEFAULTS = {"min_delay": 20, "max_delay": 60, "max_per_account": 50}
+OPTIONAL_STR = ("proxy", "my_name", "session_name")
 
 
 class ConfigError(RuntimeError):
@@ -65,6 +66,10 @@ def parse_account(line: str) -> dict:
 
     for key in ("api_hash", "my_name", "session_name"):
         account[key] = str(account[key])
+    account.setdefault("proxy", "")
+    if account["proxy"]:
+        from proxy_config import parse_proxy  # локальный импорт: нужен только при наличии прокси
+        parse_proxy(str(account["proxy"]))  # валидируем сразу, а не в момент отправки
     return account
 
 

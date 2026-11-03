@@ -139,8 +139,43 @@ def test_history() -> None:
         check("регистр не создаёт дубль", filter_pending(["ALPHA"], {"alpha"}) == [])
 
 
+def test_proxy() -> None:
+    print("proxy_config")
+    from proxy_config import describe, parse_proxy
+
+    check("пустое значение → напрямую", parse_proxy("") is None and parse_proxy(None) is None)
+
+    socks = parse_proxy("socks5://user:p%40ss@127.0.0.1:1080")
+    check("socks5 разобран", isinstance(socks, tuple) and len(socks) == 6)
+    assert socks is not None
+    check("socks5 с логином разобран", socks[1] == "127.0.0.1" and socks[2] == 1080 and socks[4] == "user")
+    check("пароль декодируется", socks[5] == "p@ss", str(socks[5]))
+    check("rdns включён", socks[3] is True)
+
+    mt = parse_proxy("mtproxy://proxy.example:443/ee1122334455")
+    assert mt is not None
+    check("mtproxy с секретом", mt[0] == "mtproxy" and mt[3] == "ee1122334455")
+
+    for bad, why in [
+        ("ftp://host:21", "неизвестная схема"),
+        ("socks5://host", "нет порта"),
+        ("mtproxy://host:443", "нет секрета"),
+    ]:
+        try:
+            parse_proxy(bad)
+        except (ValueError, RuntimeError):
+            check(f"отклонено: {why}", True)
+        else:
+            check(f"отклонено: {why}", False)
+
+    check("описание без прокси", describe(None) == "напрямую")
+    check("конфиг с прокси валидируется",
+          parse_account("session_name=s;api_id=1;api_hash=h1234567;my_name=A;proxy=socks5://127.0.0.1:9050")["proxy"]
+          == "socks5://127.0.0.1:9050")
+
+
 def main() -> int:
-    for suite in (test_config, test_recipients, test_render, test_history):
+    for suite in (test_config, test_recipients, test_render, test_history, test_proxy):
         suite()
     print(f"\nПройдено: {ok}, провалено: {len(failed)}")
     if failed:
