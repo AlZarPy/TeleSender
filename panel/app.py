@@ -102,6 +102,29 @@ def config_accounts() -> list[dict]:
 
 
 def lan_ip() -> str:
+    """Адрес для телефона: домашняя сеть, а не докер-адаптер 172.17/172.18."""
+    try:
+        import psutil
+
+        candidates: list[str] = []
+        for name, addrs in psutil.net_if_addrs().items():
+            for addr in addrs:
+                if addr.family.name != "AF_INET":
+                    continue
+                ip = addr.address
+                if ip.startswith(("127.", "169.254.")):
+                    continue
+                if ip.startswith(("172.17.", "172.18.", "172.19.")) or "docker" in name.lower():
+                    continue
+                candidates.append(ip)
+        for prefix in ("192.168.", "10."):
+            for ip in candidates:
+                if ip.startswith(prefix):
+                    return ip
+        if candidates:
+            return candidates[0]
+    except Exception:  # noqa: BLE001
+        pass
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.connect(("8.8.8.8", 80))
