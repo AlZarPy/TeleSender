@@ -25,17 +25,28 @@ from fastapi.templating import Jinja2Templates
 from config_loader import ConfigError, load_config_from_txt
 from csv_loader import normalise
 
-from panel import db
+from panel import brand, db
 
-PANEL_NAME = "Почтамт"
+PANEL_NAME = brand.PANEL
 COOKIE = "pochtamt"
 SESSION_TTL = 30 * 24 * 3600
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
-app = FastAPI(title=PANEL_NAME, docs_url=None, redoc_url=None)
+app = FastAPI(title=f"{brand.APP} · {brand.PANEL}", docs_url=None, redoc_url=None)
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE / "templates"))
+templates.env.globals.update(
+    T=brand.T,
+    APP=brand.APP,
+    PANEL=brand.PANEL,
+    TAGLINE=brand.TAGLINE,
+    reason_label=brand.reason_label,
+    reason_hint=brand.reason_hint,
+    campaign_status=brand.campaign_status,
+    target_state=brand.target_state,
+    stamp=brand.stamp,
+)
 
 
 # ── доступ ──────────────────────────────────────────────────────────────────
@@ -145,6 +156,7 @@ def render(request: Request, name: str, **ctx):
         "panel": PANEL_NAME,
         "worker_alive": alive,
         "worker": worker,
+        "stamp_text": brand.stamp(alive),
         "lan_ip": lan_ip(),
         "port": os.environ.get("PANEL_PORT", "8765"),
     }
@@ -220,7 +232,7 @@ def campaign_create(request: Request, name: str = Form(...), template: str = For
                              min_delay=min_delay, max_delay=max(min_delay, max_delay),
                              window_start=window_start, window_end=window_end,
                              allow_self=bool(allow_self))
-    db.event("campaign_created", "", f"«{name}»: {len(names)} получателей")
+    db.event("campaign_created", "", f"обход «{name}»: {len(names)} адресатов")
     return RedirectResponse(f"/campaigns/{cid}", status_code=303)
 
 
@@ -253,7 +265,9 @@ def campaign_action(cid: int, action: str, user: str = Depends(current_user)):
         db.execute("DELETE FROM campaigns WHERE id=?", (cid,))
         return RedirectResponse("/campaigns", status_code=303)
     db.set_campaign_status(cid, {"start": "running", "pause": "paused", "stop": "stopped"}[action])
-    db.event(f"campaign_{action}", "", f"«{row['name']}»")
+    verb = {"start": "обход отправлен в путь", "pause": "обход на привале",
+            "stop": "обход остановлен"}[action]
+    db.event(f"campaign_{action}", "", f"{verb}: «{row['name']}»")
     return RedirectResponse(f"/campaigns/{cid}", status_code=303)
 
 
@@ -287,7 +301,7 @@ def base_import(recipients: str = Form(""), tags: str = Form(""),
         if value:
             parsed.append((value, first_name.strip(), tags.strip()))
     added, existed = db.upsert_recipients(parsed)
-    db.event("base_import", "", f"добавлено {added}, уже было {existed}")
+    db.event("base_import", "", f"разгрузили мешок: +{added}, уже было {existed}")
     return RedirectResponse(f"/base?q=&imported={added}", status_code=303)
 
 
@@ -317,7 +331,7 @@ def settings_account(session_name: str = Form(...), daily_limit: int = Form(20),
                      status: str = Form("active"), user: str = Depends(current_user)):
     db.set_account(session_name, daily_limit=daily_limit, status=status,
                    paused_until=0 if status == "active" else time.time() + 3600)
-    db.event("account_settings", session_name, f"лимит={daily_limit}, статус={status}")
+    db.event("account_settings", session_name, f"сумка={daily_limit}, статус={status}")
     return RedirectResponse("/settings", status_code=303)
 
 

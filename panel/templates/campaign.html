@@ -1,46 +1,46 @@
 {% extends "layout.html" %}
 {% block title %}{{ campaign.name }}{% endblock %}
 {% block content %}
-<h1>{{ campaign.name }} <span class="pill {{ campaign.status }}">{{ campaign.status }}</span></h1>
+<h1>{{ campaign.name }} <span class="pill {{ campaign.status }}">{{ campaign_status(campaign.status) }}</span></h1>
 <p class="muted small">
-  окно {{ campaign.window_start }}:00–{{ campaign.window_end }}:00 ·
-  пауза {{ campaign.min_delay }}–{{ campaign.max_delay }} с ·
-  создана {{ campaign.created_at }}
-  {% if campaign.allow_self %} · разрешена отправка себе{% endif %}
+  {{ T.hours }} {{ campaign.window_start }}:00–{{ campaign.window_end }}:00 ·
+  {{ T.gait }} {{ campaign.min_delay }}–{{ campaign.max_delay }} с ·
+  создан {{ campaign.created_at }}
+  {% if campaign.allow_self %} · разрешено {{ T.self_note }}{% endif %}
 </p>
 
 <div class="grid" style="margin-bottom:16px">
-  <div class="card"><div class="num">{{ stats.pending }}</div><div class="lbl">в очереди</div></div>
-  <div class="card"><div class="num">{{ stats.sent }}</div><div class="lbl">доставлено</div></div>
-  <div class="card"><div class="num">{{ stats.failed }}</div><div class="lbl">ошибок</div></div>
-  <div class="card"><div class="num">{{ stats.total }}</div><div class="lbl">всего</div></div>
+  <div class="card"><div class="num">{{ stats.pending }}</div><div class="lbl">в маршруте</div></div>
+  <div class="card"><div class="num">{{ stats.sent }}</div><div class="lbl">квитанций</div></div>
+  <div class="card"><div class="num">{{ stats.failed }}</div><div class="lbl">отметок</div></div>
+  <div class="card"><div class="num">{{ stats.total }}</div><div class="lbl">адресатов</div></div>
 </div>
 
 <div class="row" style="margin-bottom:18px">
   {% if campaign.status in ('draft','paused') %}
-  <form method="post" action="/campaigns/{{ campaign.id }}/start"><button type="submit">▶ Запустить</button></form>
+  <form method="post" action="/campaigns/{{ campaign.id }}/start"><button type="submit">▶ В путь</button></form>
   {% endif %}
   {% if campaign.status == 'running' %}
-  <form method="post" action="/campaigns/{{ campaign.id }}/pause"><button class="ghost" type="submit">⏸ Пауза</button></form>
+  <form method="post" action="/campaigns/{{ campaign.id }}/pause"><button class="ghost" type="submit">⏸ Привал</button></form>
   {% endif %}
   <form method="post" action="/campaigns/{{ campaign.id }}/stop"><button class="ghost" type="submit">⏹ Остановить</button></form>
   <form method="post" action="/campaigns/{{ campaign.id }}/delete"
-        onsubmit="return confirm('Удалить кампанию и её очередь?')">
+        onsubmit="return confirm('Удалить обход и его маршрут?')">
     <button class="danger" type="submit">Удалить</button></form>
 </div>
 
-<h2>Текст</h2>
-<div class="card"><pre style="white-space:pre-wrap;margin:0">{{ campaign.template }}</pre></div>
+<h2>{{ T.template }}</h2>
+<div class="card note-paper"><pre style="white-space:pre-wrap;margin:0">{{ campaign.template }}</pre></div>
 
-<h2>Получатели ({{ targets|length }})</h2>
+<h2>{{ T.route }} ({{ targets|length }})</h2>
 <div class="tablewrap">
 <table>
-  <tr><th>получатель</th><th>состояние</th><th>причина</th><th>аккаунт</th><th>когда</th></tr>
+  <tr><th>адресат</th><th>состояние</th><th>отметка на конверте</th><th>почтальон</th><th>когда</th></tr>
   {% for t in targets %}
   <tr>
     <td>{{ t.username }}{% if t.first_name %} <span class="muted small">({{ t.first_name }})</span>{% endif %}</td>
-    <td><span class="pill {{ t.state }}">{{ t.state }}</span></td>
-    <td class="small muted">{{ t.reason }}</td>
+    <td><span class="pill {{ t.state }}">{{ target_state(t.state) }}</span></td>
+    <td class="small muted">{{ reason_label(t.reason) }}{% if reason_hint(t.reason) %}<br><span class="small">{{ reason_hint(t.reason) }}</span>{% endif %}</td>
     <td class="small">{{ t.account }}</td>
     <td class="small muted">{{ t.updated_at }}</td>
   </tr>
@@ -48,15 +48,15 @@
 </table>
 </div>
 
-<h2>Отправки</h2>
+<h2>{{ T.receipts }}</h2>
 <div class="tablewrap">
 <table>
-  <tr><th>время</th><th>аккаунт</th><th>получатель</th><th>результат</th></tr>
+  <tr><th>время</th><th>почтальон</th><th>адресат</th><th>итог</th></tr>
   {% for s in sends %}
   <tr><td class="small">{{ s.ts }}</td><td>{{ s.account }}</td><td>{{ s.recipient }}</td>
-    <td>{% if s.ok %}<span class="pill sent">доставлено</span>{% else %}<span class="pill failed">{{ s.reason }}</span>{% endif %}</td></tr>
+    <td>{% if s.ok %}<span class="pill sent">доставлено</span>{% else %}<span class="pill failed">{{ reason_label(s.reason) }}</span>{% endif %}</td></tr>
   {% endfor %}
-  {% if not sends %}<tr><td colspan="4" class="muted">ещё не отправляли</td></tr>{% endif %}
+  {% if not sends %}<tr><td colspan="4" class="muted">записок ещё не носили</td></tr>{% endif %}
 </table>
 </div>
 {% endblock %}

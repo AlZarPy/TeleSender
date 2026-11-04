@@ -27,7 +27,7 @@ from io_utils import force_utf8
 from proxy_config import describe, parse_proxy
 from sender import FloodDetected, send_one
 
-from panel import db
+from panel import brand, db
 
 
 def log(message: str) -> None:
@@ -55,7 +55,7 @@ class Pool:
         me = await client.get_me()
         self.clients[name] = client
         self.me_ids[name] = getattr(me, "id", None)
-        log(f"{name}: подключён как @{getattr(me, 'username', '?')} ({describe(proxy)})")
+        log(f"{name}: удостоверение принято, @{getattr(me, 'username', '?')} ({describe(proxy)})")
         return client
 
     async def close_all(self) -> None:
@@ -105,7 +105,7 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
 
     acc = pick_account(accounts)
     if acc is None:
-        db.heartbeat("waiting", "нет аккаунтов с остатком квоты")
+        db.heartbeat("waiting", "в бригаде нет почтальонов с полной сумкой")
         return "wait"
 
     name = acc["session_name"]
@@ -114,7 +114,7 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     except PermissionError as exc:
         db.set_account(name, status="paused", paused_until=time.time() + 3600)
         db.event("account_unusable", name, str(exc))
-        log(f"⛔ {exc} — аккаунт в паузе на час")
+        log(f"⛔ {exc} — почтальон на привале")
         return "retry"
 
     me_id = None if campaign["allow_self"] else pool.me_ids.get(name)
@@ -124,8 +124,8 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     except FloodDetected as exc:
         until = time.time() + exc.seconds
         db.set_account(name, paused_until=until)
-        db.event("flood", name, f"{exc.seconds}s на @{target['username']}")
-        log(f"⏳ {name}: FloodWait {exc.seconds}с — аккаунт в паузе")
+        db.event("flood", name, f"привал {exc.seconds}с на @{target['username']}")
+        log(f"⏳ {name}: привал {exc.seconds}с — записка уйдёт другим почтальоном")
         return "retry"
 
     db.log_send(campaign["id"], target["username"], name, result.ok, result.reason)
@@ -134,7 +134,7 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     if result.ok:
         log(f"✅ {name} → @{target['username']}")
     else:
-        log(f"❌ {name} → @{target['username']}: {result.reason}")
+        log(f"❌ {name} → @{target['username']}: {brand.reason_label(result.reason)}")
     return "sent"
 
 
@@ -147,7 +147,7 @@ async def main_async(args) -> int:
     db.sync_accounts([a["session_name"] for a in accounts_cfg])
 
     pool = Pool(accounts_cfg)
-    log(f"аккаунтов в пуле: {len(accounts_cfg)}")
+    log(f"бригада: {len(accounts_cfg)} почтальонов")
     try:
         while True:
             campaign = db.q1("SELECT * FROM campaigns WHERE status='running' ORDER BY id LIMIT 1")
@@ -162,8 +162,8 @@ async def main_async(args) -> int:
             stats = db.campaign_stats(campaign["id"])
             if stats["pending"] == 0:
                 db.set_campaign_status(campaign["id"], "done")
-                db.event("campaign_done", "", f"«{campaign['name']}» завершена")
-                log(f"🏁 кампания «{campaign['name']}» завершена")
+                db.event("campaign_done", "", f"обход «{campaign['name']}» завершён")
+                log(f"🏁 обход «{campaign['name']}» завершён — все квитанции собраны")
                 if args.once:
                     return 0
                 continue
@@ -177,7 +177,7 @@ async def main_async(args) -> int:
                 continue
 
             accounts = db.accounts_with_config(accounts_cfg)
-            db.heartbeat("working", f"«{campaign['name']}»: {stats['pending']} в очереди")
+            db.heartbeat("working", f"обход «{campaign['name']}»: {stats['pending']} в маршруте")
             state = await run_once(pool, campaign, accounts)
 
             if args.once:

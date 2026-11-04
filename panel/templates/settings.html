@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
-{% block title %}Настройки{% endblock %}
+{% block title %}Бригада{% endblock %}
 {% block content %}
-<h1>Настройки аккаунтов</h1>
+<h1>{{ T.brigade }}</h1>
 <p class="muted small">
-  Аккаунты читаются из <code>config.txt</code>; здесь задаются только квоты и статус.
-  Для 10–30 аккаунтов держите холодный лимит 15–20 в сутки на новый аккаунт и 30–50 на прогретый.
+  Состав бригады читается из <code>config.txt</code>; здесь задаются {{ T.bag }} и состояние.
+  {{ T.warmup }}: 15–20 записок в сутки для нового почтальона, 30–50 для обкатанного.
 </p>
 
 {% for a in accounts %}
@@ -13,19 +13,19 @@
     <div>
       <strong>{{ a.session_name }}</strong>
       <div class="small muted">
-        {{ a.my_name }} · {{ 'сессия есть' if a.session_exists else 'сессии нет' }} ·
-        прокси: {{ a.proxy.split('@')[-1] if a.proxy else 'напрямую' }} ·
-        сегодня {{ a.sent_today }}/{{ a.daily_limit }}
+        {{ a.my_name }} · {{ T.credentials }}: {{ 'есть' if a.session_exists else 'нет' }} ·
+        дорога: {{ a.proxy.split('@')[-1] if a.proxy else 'напрямую' }} ·
+        сегодня {{ a.sent_today }}/{{ a.daily_limit }} из сумки
       </div>
     </div>
   </div>
   <form method="post" action="/settings/account" class="row" style="margin-top:10px">
     <input type="hidden" name="session_name" value="{{ a.session_name }}">
-    <label>квота в сутки<input type="number" name="daily_limit" value="{{ a.daily_limit }}" min="0" max="500"></label>
-    <label>статус
+    <label>{{ T.bag }} в сутки<input type="number" name="daily_limit" value="{{ a.daily_limit }}" min="0" max="500"></label>
+    <label>состояние
       <select name="status">
-        <option value="active" {{ 'selected' if a.status == 'active' }}>активен</option>
-        <option value="paused" {{ 'selected' if a.status == 'paused' }}>на паузе</option>
+        <option value="active" {{ 'selected' if a.status == 'active' }}>готов в обход</option>
+        <option value="paused" {{ 'selected' if a.status == 'paused' }}>на привале</option>
       </select>
     </label>
     <button type="submit">Сохранить</button>
@@ -34,13 +34,13 @@
 {% endfor %}
 
 {% if not accounts %}
-<div class="card muted">В <code>config.txt</code> нет аккаунтов — добавьте строки и перезапустите панель.</div>
+<div class="card muted">Бригада пуста: в <code>config.txt</code> нет почтальонов — добавьте строки и перезапустите панель.</div>
 {% endif %}
 
-<h2>Доступ</h2>
+<h2>Доступ и инструменты</h2>
 <div class="card small">
-  Панель: <code>http://{{ lan_ip }}:{{ port }}</code> · пароль в <code>.env</code> →
-  <code>PANEL_PASSWORD</code>. Воркер запускается отдельно:
-  <code>python -m panel.worker</code>.
+  <p>Почтамт: <code>http://{{ lan_ip }}:{{ port }}</code> · пароль в <code>.env</code> → <code>PANEL_PASSWORD</code>.</p>
+  <p>{{ T.road_scout }}: <code>python diagnose.py</code> · {{ T.receipts }}: <code>sent.jsonl</code> и база панели.</p>
+  <p>Воркер: <code>python -m panel.worker</code> (или <code>run_worker.cmd</code>).</p>
 </div>
 {% endblock %}

@@ -1,31 +1,31 @@
 {% extends "layout.html" %}
 {% block title %}Дашборд{% endblock %}
 {% block content %}
-<h1>Дашборд</h1>
+<h1>Почтамт сегодня</h1>
 
 <div class="grid">
-  <div class="card"><div class="num">{{ totals.ok }}</div><div class="lbl">доставлено сегодня</div></div>
-  <div class="card"><div class="num">{{ totals.total }}</div><div class="lbl">попыток сегодня</div></div>
-  <div class="card"><div class="num">{{ totals.failed }}</div><div class="lbl">ошибок сегодня</div></div>
-  <div class="card"><div class="num">{{ accounts|length }}</div><div class="lbl">аккаунтов</div></div>
+  <div class="card"><div class="num">{{ totals.ok }}</div><div class="lbl">квитанций за сегодня</div></div>
+  <div class="card"><div class="num">{{ totals.total }}</div><div class="lbl">записок в пути</div></div>
+  <div class="card"><div class="num">{{ totals.failed }}</div><div class="lbl">отметок на конверте</div></div>
+  <div class="card"><div class="num">{{ accounts|length }}</div><div class="lbl">в бригаде</div></div>
   <div class="card">
     <div class="num">{{ accounts|selectattr('left_today','gt',0)|list|length }}</div>
-    <div class="lbl">со свободной квотой</div>
+    <div class="lbl">с полной сумкой</div>
   </div>
 </div>
 
-<h2>Аккаунты</h2>
+<h2>{{ T.brigade }}</h2>
 <div class="tablewrap">
 <table>
-  <tr><th>аккаунт</th><th>статус</th><th>сегодня</th><th>квота</th><th>осталось</th><th>прокси</th></tr>
+  <tr><th>почтальон</th><th>состояние</th><th>сегодня</th><th>сумка</th><th>осталось</th><th>дорога</th></tr>
   {% for a in accounts %}
   <tr>
     <td>{{ a.session_name }}</td>
     <td>
-      {% if a.status != 'active' %}<span class="pill bad">пауза</span>
-      {% elif a.paused_now %}<span class="pill pending">flood-пауза</span>
-      {% elif not a.session_exists %}<span class="pill bad">нет сессии</span>
-      {% else %}<span class="pill ok">готов</span>{% endif %}
+      {% if a.status != 'active' %}<span class="pill bad">на привале</span>
+      {% elif a.paused_now %}<span class="pill pending">привал после флуда</span>
+      {% elif not a.session_exists %}<span class="pill bad">нет удостоверения</span>
+      {% else %}<span class="pill ok">готов в обход</span>{% endif %}
     </td>
     <td>{{ a.sent_today }}</td>
     <td>{{ a.daily_limit }}</td>
@@ -33,19 +33,19 @@
     <td class="small muted">{{ a.proxy.split('@')[-1] if a.proxy else 'напрямую' }}</td>
   </tr>
   {% endfor %}
-  {% if not accounts %}<tr><td colspan="6" class="muted">нет аккаунтов в config.txt</td></tr>{% endif %}
+  {% if not accounts %}<tr><td colspan="6" class="muted">бригада пуста — заполните config.txt</td></tr>{% endif %}
 </table>
 </div>
 
-<h2>Кампании</h2>
+<h2>{{ T.campaigns }}</h2>
 <div class="tablewrap">
 <table>
-  <tr><th>#</th><th>название</th><th>статус</th><th>прогресс</th><th></th></tr>
+  <tr><th>#</th><th>обход</th><th>состояние</th><th>маршрут</th><th>начат</th></tr>
   {% for c in campaigns %}
   <tr>
     <td>{{ c.id }}</td>
     <td><a href="/campaigns/{{ c.id }}">{{ c.name }}</a></td>
-    <td><span class="pill {{ c.status }}">{{ c.status }}</span></td>
+    <td><span class="pill {{ c.status }}">{{ campaign_status(c.status) }}</span></td>
     <td>
       {{ c.stats.sent }}/{{ c.stats.total }}
       <div class="progress"><i style="width:{{ (100 * c.stats.sent / c.stats.total)|round(0) if c.stats.total else 0 }}%"></i></div>
@@ -53,28 +53,28 @@
     <td class="small muted">{{ c.created_at }}</td>
   </tr>
   {% endfor %}
-  {% if not campaigns %}<tr><td colspan="5" class="muted">кампаний ещё нет — <a href="/campaigns">создать</a></td></tr>{% endif %}
+  {% if not campaigns %}<tr><td colspan="5" class="muted">обходов пока нет — <a href="/campaigns">снарядить первый</a></td></tr>{% endif %}
 </table>
 </div>
 
-<h2>Последние отправки</h2>
+<h2>Свежие квитанции</h2>
 <div class="tablewrap">
 <table>
-  <tr><th>время</th><th>аккаунт</th><th>получатель</th><th>результат</th></tr>
+  <tr><th>время</th><th>почтальон</th><th>адресат</th><th>отметка</th></tr>
   {% for s in recent %}
   <tr>
     <td class="small">{{ s.ts }}</td><td>{{ s.account }}</td><td>{{ s.recipient }}</td>
-    <td>{% if s.ok %}<span class="pill sent">доставлено</span>{% else %}<span class="pill failed">{{ s.reason or 'ошибка' }}</span>{% endif %}</td>
+    <td>{% if s.ok %}<span class="pill sent">доставлено</span>{% else %}<span class="pill failed">{{ reason_label(s.reason) or 'отметка' }}</span>{% endif %}</td>
   </tr>
   {% endfor %}
-  {% if not recent %}<tr><td colspan="4" class="muted">пока ничего не отправляли</td></tr>{% endif %}
+  {% if not recent %}<tr><td colspan="4" class="muted">записок ещё не носили</td></tr>{% endif %}
 </table>
 </div>
 
-<h2>События</h2>
+<h2>Что происходит</h2>
 <div class="tablewrap">
 <table>
-  <tr><th>время</th><th>тип</th><th>аккаунт</th><th>детали</th></tr>
+  <tr><th>время</th><th>событие</th><th>почтальон</th><th>детали</th></tr>
   {% for e in events %}
   <tr><td class="small">{{ e.ts }}</td><td>{{ e.kind }}</td><td>{{ e.account }}</td><td class="wrap">{{ e.detail }}</td></tr>
   {% endfor %}

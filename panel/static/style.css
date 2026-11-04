@@ -59,6 +59,11 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .progress>i{display:block;height:100%;background:var(--accent)}
 .muted{color:var(--muted)}
 .small{font-size:12px}
+.brand-sub{color:var(--muted);font-weight:500;font-size:14px}
+.stamp-mini{display:inline-block;border:1px solid #6b5a3a;color:#E4D5B7;background:rgba(228,213,183,.06);
+  border-radius:4px;padding:2px 8px;font-size:11px;letter-spacing:.14em;font-weight:700}
+.note-paper{background:linear-gradient(#1d222c,#1a1f28);border-left:3px solid #E4D5B7}
+.note-paper pre{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;color:#EDE6D6}
 .login{max-width:360px;margin:10vh auto}
 @media (max-width:640px){
   .topbar nav{gap:10px}
