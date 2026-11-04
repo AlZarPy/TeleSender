@@ -1,7 +1,7 @@
 # секреты и рабочие данные
 config.txt
 *.session
-*.session-journal
+*.session*
 recipients.csv
 sent.jsonl
 login.log

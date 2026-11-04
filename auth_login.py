@@ -39,6 +39,9 @@ def log(message: str) -> None:
         pass
 
 
+DRY_RUN = "--dry-run" in sys.argv
+
+
 async def login(account: dict) -> bool:
     tag = f"{account['my_name']}/{account['session_name']}"
     proxy = parse_proxy(account.get("proxy"))
@@ -55,12 +58,24 @@ async def login(account: dict) -> bool:
             return True
 
         print(f"\n🔐 {tag}: требуется вход")
-        phone = input("  номер телефона (+7…): ").strip()
-        phone = "".join(ch for ch in phone if ch.isdigit() or ch == "+")
-        log(f"введён номер длиной {len(phone)}")
+        preset = account.get("phone") or ""
+        if preset:
+            masked = preset[:4] + "…" + preset[-2:]
+            print(f"  номер из config.txt: {masked}")
+            phone = preset
+        else:
+            phone = input("  номер телефона (+7…): ").strip()
+            phone = "".join(ch for ch in phone if ch.isdigit() or ch == "+")
+        log(f"номер: {'из конфига' if preset else 'введён вручную'}, длина {len(phone)}")
         if len(phone) < 8:
             log("отмена: номер слишком короткий")
             print("  ❌ номер не введён или слишком короткий — вход отменён")
+            return False
+
+        if DRY_RUN:
+            log("dry-run: код не запрашивался")
+            print("  🔎 проверка без отправки кода: номер принят, всё готово к входу")
+            print("     запустите без --dry-run, чтобы получить код в Telegram")
             return False
 
         try:
@@ -151,6 +166,9 @@ async def main() -> int:
 
     print("\n" + "=" * 46)
     print(f"Готовы к работе: {sum(results)} из {len(results)}")
+    if DRY_RUN:
+        print("(режим --dry-run: Telegram не тревожили)")
+        return 0
     return 0 if all(results) else 1
 
 

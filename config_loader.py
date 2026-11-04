@@ -70,6 +70,12 @@ def parse_account(line: str) -> dict:
     if account["proxy"]:
         from proxy_config import parse_proxy  # локальный импорт: нужен только при наличии прокси
         parse_proxy(str(account["proxy"]))  # валидируем сразу, а не в момент отправки
+
+    phone = str(account.get("phone", "")).strip()
+    phone = "".join(ch for ch in phone if ch.isdigit() or ch == "+")
+    if phone and (len(phone) < 8 or not phone.startswith("+")):
+        raise ValueError(f"phone должен быть в формате +<код страны><номер>, получено {len(phone)} цифр")
+    account["phone"] = phone
     return account
 
 

@@ -174,8 +174,27 @@ def test_proxy() -> None:
           == "socks5://127.0.0.1:9050")
 
 
+def test_phone() -> None:
+    print("config_loader.phone")
+    acc = parse_account("session_name=s;api_id=1;api_hash=h1234567;my_name=A;phone=+7 966 335-84-35")
+    check("номер нормализован", acc["phone"] == "+79663358435", acc["phone"])
+    check("пустой номер допустим",
+          parse_account("session_name=s;api_id=1;api_hash=h1234567;my_name=A")["phone"] == "")
+
+    for bad, why in [
+        ("session_name=s;api_id=1;api_hash=h;my_name=A;phone=89663358435", "номер без +"),
+        ("session_name=s;api_id=1;api_hash=h;my_name=A;phone=123", "слишком короткий"),
+    ]:
+        try:
+            parse_account(bad)
+        except ValueError:
+            check(f"отклонено: {why}", True)
+        else:
+            check(f"отклонено: {why}", False)
+
+
 def main() -> int:
-    for suite in (test_config, test_recipients, test_render, test_history, test_proxy):
+    for suite in (test_config, test_recipients, test_render, test_history, test_proxy, test_phone):
         suite()
     print(f"\nПройдено: {ok}, провалено: {len(failed)}")
     if failed:
