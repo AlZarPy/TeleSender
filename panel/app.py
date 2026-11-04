@@ -295,8 +295,8 @@ def campaign_action(cid: int, action: str, user: str = Depends(current_user)):
         db.execute("DELETE FROM campaigns WHERE id=?", (cid,))
         return RedirectResponse("/campaigns", status_code=303)
     db.set_campaign_status(cid, {"start": "running", "pause": "paused", "stop": "stopped"}[action])
-    verb = {"start": "обход отправлен в путь", "pause": "обход на привале",
-            "stop": "обход остановлен"}[action]
+    verb = {"start": "кампания запущена", "pause": "кампания на паузе",
+            "stop": "кампания остановлена"}[action]
     db.event(f"campaign_{action}", "", f"{verb}: «{row['name']}»")
     return RedirectResponse(f"/campaigns/{cid}", status_code=303)
 
@@ -361,7 +361,7 @@ def settings_account(session_name: str = Form(...), daily_limit: int = Form(20),
                      status: str = Form("active"), user: str = Depends(current_user)):
     db.set_account(session_name, daily_limit=daily_limit, status=status,
                    paused_until=0 if status == "active" else time.time() + 3600)
-    db.event("account_settings", session_name, f"сумка={daily_limit}, статус={status}")
+    db.event("account_settings", session_name, f"квота={daily_limit}, статус={status}")
     return RedirectResponse("/settings", status_code=303)
 
 
