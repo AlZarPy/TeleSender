@@ -126,6 +126,9 @@ def lan_ip() -> str:
     except Exception:  # noqa: BLE001
         pass
     try:
+        for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+            if ip.startswith(("192.168.", "10.")):
+                return ip
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.connect(("8.8.8.8", 80))
         ip = sock.getsockname()[0]
