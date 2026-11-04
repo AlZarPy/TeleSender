@@ -4,6 +4,7 @@ config.txt
 *.session-journal
 recipients.csv
 sent.jsonl
+login.log
 *.log
 
 # окружение
