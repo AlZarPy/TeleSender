@@ -46,7 +46,9 @@ def render(template: str, my_name: str, his_name: str) -> str:
     return template.replace(PLACEHOLDER_ME, my_name).replace(PLACEHOLDER_HIM, name)
 
 
-async def send_one(client, username: str, my_name: str, template: str, me_id: int | None = None) -> SendResult:
+async def send_one(client, username: str, my_name: str, template: str, me_id: int | None = None,
+                   template_fn=None) -> SendResult:
+    """template_fn(his_name) -> текст: так панель подставляет свои варианты и вступление."""
     try:
         user = await client.get_entity(username)
     except (UsernameNotOccupiedError, UsernameInvalidError, PeerIdInvalidError, ValueError):
@@ -57,7 +59,8 @@ async def send_one(client, username: str, my_name: str, template: str, me_id: in
     if me_id is not None and getattr(user, "id", None) == me_id:
         return SendResult(username, False, "self")
 
-    text = render(template, my_name, getattr(user, "first_name", "") or "")
+    his_name = getattr(user, "first_name", "") or ""
+    text = template_fn(his_name) if template_fn else render(template, my_name, his_name)
     try:
         await client.send_message(user, text)
     except FloodWaitError as exc:

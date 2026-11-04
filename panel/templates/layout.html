@@ -11,14 +11,14 @@
   <a class="brand" href="/">{{ APP }} <span class="brand-sub">· {{ PANEL }}</span></a>
   <nav>
     <a href="/">Дашборд</a>
-    <a href="/campaigns">Обходы</a>
-    <a href="/base">Мешок</a>
-    <a href="/logs">Квитанции</a>
-    <a href="/settings">Бригада</a>
+    <a href="/campaigns">Кампании</a>
+    <a href="/base">Получатели</a>
+    <a href="/logs">Журнал</a>
+    <a href="/settings">Настройки</a>
     <a class="exit" href="/logout">Выйти</a>
   </nav>
   <span class="badge {{ 'on' if worker_alive else 'off' }}">
-    {{ 'почтамт работает' if worker_alive else 'почтамт закрыт' }}
+    {{ 'воркер работает' if worker_alive else 'воркер остановлен' }}
   </span>
 </header>
 
@@ -27,8 +27,7 @@
 </main>
 
 <footer>
-  <span class="stamp-mini">{{ stamp_text }}</span>
-  &nbsp; {{ lan_ip }}:{{ port }} · {{ worker.status if worker else '—' }}
+  {{ lan_ip }}:{{ port }} · {{ worker.status if worker else '—' }}
   {{ worker.detail if worker and worker.detail else '' }}
 </footer>
 </body>

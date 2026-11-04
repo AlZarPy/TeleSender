@@ -1,0 +1,116 @@
+"""Подготовка текста рассылки: вступление, варианты, персонализация и проверки.
+
+Три вещи, которые реально влияют на жалобы и попадание в спам:
+  1) текст не должен быть одинаковым у всех — варианты через {a|b|c};
+  2) обращение по имени — получатель видит, что письмо ему, а не «всем»;
+  3) вступление (присказка) объясняет с первых слов, кто и почему пишет.
+
+Всё это здесь: рендер, подсчёт вариантов и линтер «что не так с текстом».
+"""
+from __future__ import annotations
+
+import random
+import re
+
+PH_ME = "<МоёИмя>"
+PH_HIM = "<ЕгоИмя>"
+SIZE_LIMIT = 900
+MAX_LINKS = 2
+
+SPAM_WORDS = (
+    "заработок", "заработать", "крипт", "инвестиц", "гарантированн", "быстрый доход",
+    "пассивный доход", "бесплатно", "скидка 90", "только сегодня", "успей",
+    "нажми на ссылку", "перейди по ссылке", "розыгрыш", "приз", "выигрыш",
+)
+
+_SPINTAX = re.compile(r"\{([^{}]*)\}")
+_LINK = re.compile(r"https?://|t\.me/|@[A-Za-z0-9_]{4,}")
+
+
+def expand_spintax(text: str, rng: random.Random | None = None) -> str:
+    """{привет|здравствуйте|добрый день} → один из вариантов. Поддерживает вложенность."""
+    chooser = rng.choice if rng is not None else random.choice
+    for _ in range(10):  # защита от бесконечной вложенности
+        if "{" not in text:
+            break
+        text = _SPINTAX.sub(lambda m: chooser(m.group(1).split("|")), text)
+    return text
+
+
+def variants_count(text: str) -> int:
+    """Сколько уникальных комбинаций даёт текст (для предупреждения об одинаковости)."""
+    total = 1
+    for block in _SPINTAX.findall(text):
+        total *= max(1, len(block.split("|")))
+    return total
+
+
+def personalise(text: str, my_name: str, his_name: str) -> str:
+    name = (his_name or "").strip() or "друг"
+    return text.replace(PH_ME, my_name).replace(PH_HIM, name)
+
+
+def render(template: str, intro: str, my_name: str, his_name: str,
+           rng: random.Random | None = None) -> str:
+    """Собирает финальный текст: вступление + тело, варианты и имена подставлены."""
+    body = personalise(expand_spintax(template, rng), my_name, his_name)
+    head = personalise(expand_spintax(intro, rng), my_name, his_name).strip() if intro else ""
+    if head and not head.endswith((".", "!", "?", ":", "…")):
+        head += ":"
+    return (head + "\n\n" + body).strip() if head else body.strip()
+
+
+def lint(template: str, intro: str = "") -> list[tuple[str, str]]:
+    """Проверки качества текста. Возвращает список (уровень, пояснение).
+
+    Уровни: bad — почти гарантированные жалобы; warn — риск; ok — что сделано хорошо.
+    """
+    notes: list[tuple[str, str]] = []
+    full = (intro + "\n" + template).strip()
+
+    if not intro.strip():
+        notes.append(("warn", "нет вступления: получатель не понимает, кто пишет и почему"))
+    else:
+        notes.append(("ok", "есть вступление — первая строка объясняет повод"))
+
+    if PH_HIM not in template:
+        notes.append(("warn", "нет <ЕгоИмя>: без обращения по имени жалобы чаще"))
+    else:
+        notes.append(("ok", "есть обращение по имени"))
+
+    combos = variants_count(template) * max(1, variants_count(intro))
+    if combos == 1:
+        notes.append(("warn", "текст одинаковый для всех: добавьте варианты {так|иначе}"))
+    else:
+        notes.append(("ok", f"вариантов текста: {combos}"))
+
+    if len(full) > SIZE_LIMIT:
+        notes.append(("warn", f"длинно: {len(full)} символов (лучше до {SIZE_LIMIT})"))
+
+    links = len(_LINK.findall(full))
+    if links > MAX_LINKS:
+        notes.append(("bad", f"слишком много ссылок/упоминаний: {links} (норма до {MAX_LINKS})"))
+    elif links == 0:
+        notes.append(("ok", "нет ссылок — меньше похоже на рекламу"))
+
+    letters = [c for c in full if c.isalpha()]
+    if letters and sum(1 for c in letters if c.isupper()) / len(letters) > 0.5:
+        notes.append(("bad", "больше половины букв в верхнем регистре — выглядит как реклама"))
+
+    lowered = full.lower()
+    hits = [w for w in SPAM_WORDS if w in lowered]
+    if hits:
+        notes.append(("bad", "слова-триггеры: " + ", ".join(hits)))
+
+    if "http://" in lowered:
+        notes.append(("warn", "ссылка по http:// — замените на https://"))
+
+    return notes
+
+
+def worst_level(notes: list[tuple[str, str]]) -> str:
+    if any(level == "bad" for level, _ in notes):
+        return "bad"
+    if any(level == "warn" for level, _ in notes):
+        return "warn"
+    return "ok"

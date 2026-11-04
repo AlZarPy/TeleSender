@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block title %}Предпросмотр · {{ campaign.name }}{% endblock %}
+{% block content %}
+<h1>Предпросмотр: {{ campaign.name }}</h1>
+<p class="muted small">
+  Так получатели увидят сообщение. Варианты в скобках раскрыты, имена подставлены —
+  у каждого получится свой текст. Ничего не отправляется.
+</p>
+
+<div class="card">
+  <ul class="checks">
+    {% for level, text in notes %}
+    <li class="{{ level }}"><span>{{ '✕' if level == 'bad' else ('!' if level == 'warn' else '✓') }}</span> {{ text }}</li>
+    {% endfor %}
+  </ul>
+</div>
+
+{% for s in samples %}
+<h2>@{{ s.username }}{% if s.already %} <span class="pill pending">уже получал — будет пропущен</span>{% endif %}</h2>
+<div class="card note-paper"><pre style="white-space:pre-wrap;margin:0">{{ s.text }}</pre></div>
+{% endfor %}
+{% if not samples %}<div class="card muted">в кампании нет получателей</div>{% endif %}
+
+<p><a class="btn ghost" href="/campaigns/{{ campaign.id }}">← назад к кампании</a></p>
+{% endblock %}

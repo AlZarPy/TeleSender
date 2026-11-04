@@ -39,12 +39,15 @@ CREATE TABLE IF NOT EXISTS campaigns (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT NOT NULL,
     template     TEXT NOT NULL,
+    intro        TEXT NOT NULL DEFAULT '',         -- фирменное вступление (присказка)
     status       TEXT NOT NULL DEFAULT 'draft',    -- draft|running|paused|done|stopped
     min_delay    INTEGER NOT NULL DEFAULT 25,
     max_delay    INTEGER NOT NULL DEFAULT 70,
+    hour_limit   INTEGER NOT NULL DEFAULT 10,      -- потолок отправок с аккаунта в час
     window_start INTEGER NOT NULL DEFAULT 9,
     window_end   INTEGER NOT NULL DEFAULT 21,
     allow_self   INTEGER NOT NULL DEFAULT 0,
+    allow_repeat INTEGER NOT NULL DEFAULT 0,       -- разрешить писать тем, кому уже писали
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     started_at   TEXT,
     finished_at  TEXT
@@ -103,6 +106,22 @@ def connect() -> sqlite3.Connection:
 def init() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+    _migrate()
+
+
+def _migrate() -> None:
+    """Догоняем схему для баз, созданных до появления новых колонок."""
+    want = {
+        "intro": "TEXT NOT NULL DEFAULT ''",
+        "hour_limit": "INTEGER NOT NULL DEFAULT 10",
+        "allow_repeat": "INTEGER NOT NULL DEFAULT 0",
+    }
+    with connect() as conn:
+        have = {row["name"] for row in conn.execute("PRAGMA table_info(campaigns)")}
+        for column, ddl in want.items():
+            if column not in have:
+                conn.execute(f"ALTER TABLE campaigns ADD COLUMN {column} {ddl}")
+        conn.commit()
 
 
 def q(sql: str, params: tuple = ()) -> list[sqlite3.Row]:
@@ -198,15 +217,16 @@ def block_recipient(username: str, blocked: bool = True) -> None:
 
 # ── кампании ────────────────────────────────────────────────────────────────
 def create_campaign(name: str, template: str, recipients: list[str], *,
-                    min_delay: int = 25, max_delay: int = 70,
-                    window_start: int = 9, window_end: int = 21,
-                    allow_self: bool = False) -> int:
+                    intro: str = "", min_delay: int = 25, max_delay: int = 70,
+                    hour_limit: int = 10, window_start: int = 9, window_end: int = 21,
+                    allow_self: bool = False, allow_repeat: bool = False) -> int:
     with connect() as conn:
         cur = conn.execute(
-            """INSERT INTO campaigns(name, template, min_delay, max_delay,
-                                     window_start, window_end, allow_self)
-               VALUES (?,?,?,?,?,?,?)""",
-            (name, template, min_delay, max_delay, window_start, window_end, int(allow_self)),
+            """INSERT INTO campaigns(name, template, intro, min_delay, max_delay, hour_limit,
+                                     window_start, window_end, allow_self, allow_repeat)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (name, template, intro, min_delay, max_delay, hour_limit,
+             window_start, window_end, int(allow_self), int(allow_repeat)),
         )
         cid = cur.lastrowid or 0
         for username in recipients:
@@ -258,6 +278,24 @@ def set_campaign_status(campaign_id: int, status: str) -> None:
     if status in ("done", "stopped"):
         extra = ", finished_at=datetime('now')"
     execute(f"UPDATE campaigns SET status=?{extra} WHERE id=?", (status, campaign_id))
+
+
+def sent_before(username: str) -> bool:
+    """Писали ли этому адресату когда-либо раньше (успешно, в любой кампании)."""
+    row = q1("SELECT 1 AS x FROM sends WHERE recipient=? AND ok=1 LIMIT 1", (username,))
+    return row is not None
+
+
+def hour_sent(account: str) -> int:
+    """Сколько успешных отправок у аккаунта за последний час."""
+    row = q1("""SELECT COUNT(*) c FROM sends
+                WHERE account=? AND ok=1 AND ts >= datetime('now','-1 hour')""", (account,))
+    return int(row["c"]) if row else 0
+
+
+def remember_recipients(rows: list[dict]) -> int:
+    """Помечает адресатов, которым уже писали (для предпросмотра)."""
+    return sum(1 for r in rows if sent_before(r["username"]))
 
 
 def heartbeat(status: str = "idle", detail: str = "") -> None:

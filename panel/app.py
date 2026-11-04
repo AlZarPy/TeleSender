@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from config_loader import ConfigError, load_config_from_txt
 from csv_loader import normalise
 
-from panel import brand, db
+from panel import brand, db, message
 
 PANEL_NAME = brand.PANEL
 COOKIE = "pochtamt"
@@ -216,10 +216,11 @@ def campaigns_page(request: Request, user: str = Depends(current_user)):
 
 @app.post("/campaigns")
 def campaign_create(request: Request, name: str = Form(...), template: str = Form(...),
-                    recipients: str = Form(""), min_delay: int = Form(25),
-                    max_delay: int = Form(70), window_start: int = Form(9),
+                    recipients: str = Form(""), intro: str = Form(""),
+                    min_delay: int = Form(25), max_delay: int = Form(70),
+                    hour_limit: int = Form(10), window_start: int = Form(9),
                     window_end: int = Form(21), allow_self: int = Form(0),
-                    user: str = Depends(current_user)):
+                    allow_repeat: int = Form(0), user: str = Depends(current_user)):
     names: list[str] = []
     for raw in recipients.replace(",", "\n").splitlines():
         value = normalise(raw)
@@ -229,10 +230,12 @@ def campaign_create(request: Request, name: str = Form(...), template: str = For
         raise HTTPException(400, "нет получателей")
     db.upsert_recipients([(n, "", "") for n in names])
     cid = db.create_campaign(name.strip() or "без названия", template.strip(), names,
+                             intro=intro.strip(),
                              min_delay=min_delay, max_delay=max(min_delay, max_delay),
+                             hour_limit=max(1, hour_limit),
                              window_start=window_start, window_end=window_end,
-                             allow_self=bool(allow_self))
-    db.event("campaign_created", "", f"обход «{name}»: {len(names)} адресатов")
+                             allow_self=bool(allow_self), allow_repeat=bool(allow_repeat))
+    db.event("campaign_created", "", f"кампания «{name}»: {len(names)} получателей")
     return RedirectResponse(f"/campaigns/{cid}", status_code=303)
 
 
@@ -249,8 +252,35 @@ def campaign_page(request: Request, cid: int, user: str = Depends(current_user))
         WHERE t.campaign_id=? ORDER BY t.updated_at DESC, t.recipient_id LIMIT 200""", (cid,))]
     sends = [dict(r) for r in db.q(
         "SELECT * FROM sends WHERE campaign_id=? ORDER BY id DESC LIMIT 50", (cid,))]
+    notes = message.lint(campaign["template"], campaign.get("intro") or "")
     return render(request, "campaign.html", campaign=campaign, stats=stats,
-                  targets=targets, sends=sends)
+                  targets=targets, sends=sends, notes=notes, worst=message.worst_level(notes))
+
+
+@app.get("/campaigns/{cid}/preview", response_class=HTMLResponse)
+def campaign_preview(request: Request, cid: int, user: str = Depends(current_user)):
+    row = db.q1("SELECT * FROM campaigns WHERE id=?", (cid,))
+    if row is None:
+        raise HTTPException(404)
+    campaign = dict(row)
+    my_name = "Александр"
+    for acc in db.accounts_with_config(config_accounts()):
+        my_name = acc["my_name"]
+        break
+    rows = db.q("""SELECT r.username, r.first_name FROM campaign_targets t
+                   JOIN recipients r ON r.id=t.recipient_id
+                   WHERE t.campaign_id=? ORDER BY t.recipient_id LIMIT 5""", (cid,))
+    samples = []
+    for target in rows:
+        samples.append({
+            "username": target["username"],
+            "already": db.sent_before(target["username"]),
+            "text": message.render(campaign["template"], campaign.get("intro") or "",
+                                   my_name, target["first_name"] or ""),
+        })
+    notes = message.lint(campaign["template"], campaign.get("intro") or "")
+    return render(request, "preview.html", campaign=campaign, samples=samples, notes=notes,
+                  worst=message.worst_level(notes))
 
 
 @app.post("/campaigns/{cid}/{action}")

@@ -1,45 +1,48 @@
 {% extends "layout.html" %}
-{% block title %}Мешок{% endblock %}
+{% block title %}Получатели{% endblock %}
 {% block content %}
-<h1>Мешок адресатов <span class="muted small">всего {{ total }}</span></h1>
+<h1>Получатели <span class="muted small">всего {{ total }}</span></h1>
 
 <div class="card">
-  <h2 style="margin-top:0">{{ T.unload_bag }}</h2>
+  <h2 style="margin-top:0">Импорт</h2>
   <form method="post" action="/base/import">
-    <label>адресаты — по одному в строке; можно <code>username;Имя</code>
+    <label>по одному в строке; можно <code>username;Имя</code>
       <textarea name="recipients" required placeholder="durov;Павел&#10;@username"></textarea>
     </label>
-    <label>{{ T.stamps }} (необязательно)<input name="tags" placeholder="клиенты, музыка"></label>
-    <button type="submit">Разгрузить</button>
+    <label>теги (необязательно)<input name="tags" placeholder="клиенты, музыка"></label>
+    <button type="submit">Добавить в базу</button>
   </form>
   {% if request.query_params.get('imported') %}
-    <p class="pill ok">в мешке прибавилось: {{ request.query_params.get('imported') }}</p>
+    <p class="pill ok">добавлено: {{ request.query_params.get('imported') }}</p>
   {% endif %}
+  <p class="muted small" style="margin:0">
+    Повторно одному и тому же человеку кампании не пишут — база помнит все прошлые отправки.
+  </p>
 </div>
 
 <h2>Список</h2>
 <form method="get" action="/base" class="row" style="margin-bottom:12px">
-  <input name="q" value="{{ query }}" placeholder="поиск по адресу, имени, штемпелям">
+  <input name="q" value="{{ query }}" placeholder="поиск по адресу, имени, тегам">
   <button class="ghost" type="submit">Найти</button>
 </form>
 
 <div class="tablewrap">
 <table>
-  <tr><th>адресат</th><th>имя</th><th>штемпели</th><th>состояние</th><th></th></tr>
+  <tr><th>получатель</th><th>имя</th><th>теги</th><th>статус</th><th></th></tr>
   {% for r in recipients %}
   <tr>
     <td>{{ r.username }}</td><td>{{ r.first_name }}</td><td class="small muted">{{ r.tags }}</td>
-    <td>{% if r.status == 'active' %}<span class="pill ok">в маршруте</span>{% else %}<span class="pill bad">возврат отправителю</span>{% endif %}</td>
+    <td>{% if r.status == 'active' %}<span class="pill ok">активен</span>{% else %}<span class="pill bad">в блоке</span>{% endif %}</td>
     <td>
       <form method="post" action="/base/block" style="display:inline">
         <input type="hidden" name="username" value="{{ r.username }}">
         <input type="hidden" name="blocked" value="{{ 0 if r.status == 'blocked' else 1 }}">
-        <button class="ghost small" type="submit">{{ 'Вернуть в маршрут' if r.status == 'blocked' else 'Возврат' }}</button>
+        <button class="ghost small" type="submit">{{ 'Разблокировать' if r.status == 'blocked' else 'В блок' }}</button>
       </form>
     </td>
   </tr>
   {% endfor %}
-  {% if not recipients %}<tr><td colspan="5" class="muted">мешок пуст</td></tr>{% endif %}
+  {% if not recipients %}<tr><td colspan="5" class="muted">база пуста</td></tr>{% endif %}
 </table>
 </div>
 {% endblock %}

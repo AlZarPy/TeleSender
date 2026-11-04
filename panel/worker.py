@@ -27,7 +27,7 @@ from io_utils import force_utf8
 from proxy_config import describe, parse_proxy
 from sender import FloodDetected, send_one
 
-from panel import brand, db
+from panel import brand, db, message
 
 
 def log(message: str) -> None:
@@ -55,7 +55,7 @@ class Pool:
         me = await client.get_me()
         self.clients[name] = client
         self.me_ids[name] = getattr(me, "id", None)
-        log(f"{name}: удостоверение принято, @{getattr(me, 'username', '?')} ({describe(proxy)})")
+        log(f"{name}: подключён как @{getattr(me, 'username', '?')} ({describe(proxy)})")
         return client
 
     async def close_all(self) -> None:
@@ -74,13 +74,15 @@ def account_capacity(name: str, limit: int) -> int:
     return max(0, limit - (row["c"] if row else 0))
 
 
-def pick_account(accounts: list[dict]) -> dict | None:
+def pick_account(accounts: list[dict], hour_limit: int = 10) -> dict | None:
     now = time.time()
     usable = []
     for acc in accounts:
         if acc["status"] != "active":
             continue
         if acc["paused_until"] > now:
+            continue
+        if hour_limit and db.hour_sent(acc["session_name"]) >= hour_limit:
             continue
         left = account_capacity(acc["session_name"], acc["daily_limit"])
         if left > 0:
@@ -98,14 +100,22 @@ def in_window(campaign: dict) -> bool:
 
 
 async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
-    """Одна отправка. Возвращает: sent | retry | wait | done."""
+    """Одна отправка. Возвращает: sent | skipped | retry | wait | done."""
     target = db.next_target(campaign["id"])
     if target is None:
         return "done"
 
-    acc = pick_account(accounts)
+    # Защита от повторных сообщений: одному и тому же человеку — один раз и навсегда,
+    # если в кампании не разрешено обратное. Это главный фактор жалоб («мне уже писали»).
+    if not campaign.get("allow_repeat") and db.sent_before(target["username"]):
+        db.close_target(campaign["id"], target["recipient_id"], "skipped", "already")
+        db.event("skipped_repeat", "", f"@{target['username']} уже получал сообщение")
+        log(f"↩️ @{target['username']} уже получал — пропускаю")
+        return "skipped"
+
+    acc = pick_account(accounts, campaign.get("hour_limit") or 10)
     if acc is None:
-        db.heartbeat("waiting", "в бригаде нет почтальонов с полной сумкой")
+        db.heartbeat("waiting", "нет аккаунта со свободной квотой (сутки или час)")
         return "wait"
 
     name = acc["session_name"]
@@ -114,18 +124,25 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     except PermissionError as exc:
         db.set_account(name, status="paused", paused_until=time.time() + 3600)
         db.event("account_unusable", name, str(exc))
-        log(f"⛔ {exc} — почтальон на привале")
+        log(f"⛔ {exc} — аккаунт на паузе")
         return "retry"
+
+    intro = campaign.get("intro") or ""
+    template_body = campaign["template"]
+    sender_name = acc["my_name"]
+
+    def compose(his_name: str) -> str:
+        return message.render(template_body, intro, sender_name, his_name)
 
     me_id = None if campaign["allow_self"] else pool.me_ids.get(name)
     try:
-        result = await send_one(client, target["username"], acc["my_name"],
-                                campaign["template"], me_id)
+        result = await send_one(client, target["username"], sender_name,
+                                template_body, me_id, template_fn=compose)
     except FloodDetected as exc:
         until = time.time() + exc.seconds
         db.set_account(name, paused_until=until)
-        db.event("flood", name, f"привал {exc.seconds}с на @{target['username']}")
-        log(f"⏳ {name}: привал {exc.seconds}с — записка уйдёт другим почтальоном")
+        db.event("flood", name, f"пауза {exc.seconds}с на @{target['username']}")
+        log(f"⏳ {name}: flood wait {exc.seconds}с — адресат уйдёт с другого аккаунта")
         return "retry"
 
     db.log_send(campaign["id"], target["username"], name, result.ok, result.reason)
@@ -147,7 +164,7 @@ async def main_async(args) -> int:
     db.sync_accounts([a["session_name"] for a in accounts_cfg])
 
     pool = Pool(accounts_cfg)
-    log(f"бригада: {len(accounts_cfg)} почтальонов")
+    log(f"аккаунтов в пуле: {len(accounts_cfg)}")
     try:
         while True:
             campaign = db.q1("SELECT * FROM campaigns WHERE status='running' ORDER BY id LIMIT 1")
@@ -162,8 +179,8 @@ async def main_async(args) -> int:
             stats = db.campaign_stats(campaign["id"])
             if stats["pending"] == 0:
                 db.set_campaign_status(campaign["id"], "done")
-                db.event("campaign_done", "", f"обход «{campaign['name']}» завершён")
-                log(f"🏁 обход «{campaign['name']}» завершён — все квитанции собраны")
+                db.event("campaign_done", "", f"кампания «{campaign['name']}» завершена")
+                log(f"🏁 кампания «{campaign['name']}» завершена")
                 if args.once:
                     return 0
                 continue
@@ -177,7 +194,7 @@ async def main_async(args) -> int:
                 continue
 
             accounts = db.accounts_with_config(accounts_cfg)
-            db.heartbeat("working", f"обход «{campaign['name']}»: {stats['pending']} в маршруте")
+            db.heartbeat("working", f"кампания «{campaign['name']}»: {stats['pending']} в очереди")
             state = await run_once(pool, campaign, accounts)
 
             if args.once:
@@ -188,6 +205,8 @@ async def main_async(args) -> int:
                 await asyncio.sleep(60)
             elif state == "retry":
                 await asyncio.sleep(5)
+            elif state == "skipped":
+                await asyncio.sleep(1)
             else:
                 delay = random.randint(campaign["min_delay"], campaign["max_delay"])
                 log(f"   пауза {delay} с")

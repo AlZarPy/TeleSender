@@ -65,6 +65,15 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .note-paper{background:linear-gradient(#1d222c,#1a1f28);border-left:3px solid #E4D5B7}
 .note-paper pre{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;color:#EDE6D6}
 .login{max-width:360px;margin:10vh auto}
+.checks{list-style:none;margin:0;padding:0}
+.checks li{display:flex;gap:8px;align-items:flex-start;padding:5px 0;font-size:13px;line-height:1.45}
+.checks li span{flex:0 0 16px;text-align:center;font-weight:700}
+.checks li.bad{color:#F2A0A0}
+.checks li.warn{color:#E8C98A}
+.checks li.ok{color:#9BD3A6}
+a.btn{display:inline-block;padding:9px 14px;border-radius:8px;border:1px solid var(--border);
+  color:var(--text);text-decoration:none;font-size:14px}
+a.btn.ghost{background:transparent}
 @media (max-width:640px){
   .topbar nav{gap:10px}
   .topbar nav a{font-size:13px}

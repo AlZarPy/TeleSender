@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
-{% block title %}Бригада{% endblock %}
+{% block title %}Настройки{% endblock %}
 {% block content %}
-<h1>{{ T.brigade }}</h1>
+<h1>Настройки</h1>
 <p class="muted small">
-  Состав бригады читается из <code>config.txt</code>; здесь задаются {{ T.bag }} и состояние.
-  {{ T.warmup }}: 15–20 записок в сутки для нового почтальона, 30–50 для обкатанного.
+  Аккаунты берутся из <code>config.txt</code>. Здесь задаётся дневная квота и статус.
+  Новому аккаунту ставьте 15–20 сообщений в сутки на первую неделю, рабочим — 30–50.
 </p>
 
 {% for a in accounts %}
@@ -13,19 +13,19 @@
     <div>
       <strong>{{ a.session_name }}</strong>
       <div class="small muted">
-        {{ a.my_name }} · {{ T.credentials }}: {{ 'есть' if a.session_exists else 'нет' }} ·
-        дорога: {{ a.proxy.split('@')[-1] if a.proxy else 'напрямую' }} ·
-        сегодня {{ a.sent_today }}/{{ a.daily_limit }} из сумки
+        {{ a.my_name }} · сессия: {{ 'есть' if a.session_exists else 'нет' }} ·
+        прокси: {{ a.proxy.split('@')[-1] if a.proxy else 'напрямую' }} ·
+        сегодня {{ a.sent_today }}/{{ a.daily_limit }}
       </div>
     </div>
   </div>
   <form method="post" action="/settings/account" class="row" style="margin-top:10px">
     <input type="hidden" name="session_name" value="{{ a.session_name }}">
-    <label>{{ T.bag }} в сутки<input type="number" name="daily_limit" value="{{ a.daily_limit }}" min="0" max="500"></label>
-    <label>состояние
+    <label>квота в сутки<input type="number" name="daily_limit" value="{{ a.daily_limit }}" min="0" max="500"></label>
+    <label>статус
       <select name="status">
-        <option value="active" {{ 'selected' if a.status == 'active' }}>готов в обход</option>
-        <option value="paused" {{ 'selected' if a.status == 'paused' }}>на привале</option>
+        <option value="active" {{ 'selected' if a.status == 'active' }}>работает</option>
+        <option value="paused" {{ 'selected' if a.status == 'paused' }}>на паузе</option>
       </select>
     </label>
     <button type="submit">Сохранить</button>
@@ -34,13 +34,15 @@
 {% endfor %}
 
 {% if not accounts %}
-<div class="card muted">Бригада пуста: в <code>config.txt</code> нет почтальонов — добавьте строки и перезапустите панель.</div>
+<div class="card muted">Нет аккаунтов: добавьте строки в <code>config.txt</code> и перезапустите панель.</div>
 {% endif %}
 
-<h2>Доступ и инструменты</h2>
+<h2>Как это работает</h2>
 <div class="card small">
-  <p>Почтамт: <code>http://{{ lan_ip }}:{{ port }}</code> · пароль в <code>.env</code> → <code>PANEL_PASSWORD</code>.</p>
-  <p>{{ T.road_scout }}: <code>python diagnose.py</code> · {{ T.receipts }}: <code>sent.jsonl</code> и база панели.</p>
-  <p>Воркер: <code>python -m panel.worker</code> (или <code>run_worker.cmd</code>).</p>
+  <p>Панель: <code>http://{{ lan_ip }}:{{ port }}</code> · пароль в <code>.env</code> → <code>PANEL_PASSWORD</code>.</p>
+  <p>Проверка канала: <code>python diagnose.py</code> · журнал отправок: <code>sent.jsonl</code> и база панели.</p>
+  <p>Воркер: <code>python -m panel.worker</code> (или <code>run_worker.cmd</code>) — без него кампании стоят на месте.</p>
+  <p>Правила, которые снижают жалобы: не больше 10 сообщений в час с аккаунта, паузы 25–70 секунд,
+     разные варианты текста, обращение по имени, никому не писать дважды.</p>
 </div>
 {% endblock %}

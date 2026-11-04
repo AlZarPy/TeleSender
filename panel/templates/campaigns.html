@@ -1,40 +1,61 @@
 {% extends "layout.html" %}
-{% block title %}Обходы{% endblock %}
+{% block title %}Кампании{% endblock %}
 {% block content %}
-<h1>{{ T.campaigns }}</h1>
+<h1>Кампании</h1>
 
 <div class="card">
-  <h2 style="margin-top:0">Снарядить обход</h2>
+  <h2 style="margin-top:0">Новая кампания</h2>
   <form method="post" action="/campaigns">
     <div class="row">
-      <label>название обхода<input name="name" placeholder="Записка для Музы" required></label>
-      <label>{{ T.hours }}: с<input type="number" name="window_start" value="9" min="0" max="23"></label>
-      <label>по<input type="number" name="window_end" value="21" min="0" max="23"></label>
+      <label>название<input name="name" placeholder="Записка для Музы" required></label>
+      <label>отправлять с часа<input type="number" name="window_start" value="9" min="0" max="23"></label>
+      <label>по час<input type="number" name="window_end" value="21" min="0" max="23"></label>
     </div>
-    <label>{{ T.note }} — текст записки
-      <textarea name="template" required placeholder="Я почтальон Печкин, принёс записку для <ЕгоИмя>. &#10;&#10;Суть: …&#10;С уважением, <МоёИмя>."></textarea>
+
+    <label>вступление (первая строка сообщения)
+      <textarea name="intro" style="min-height:60px"
+        placeholder="Я почтальон Печкин. Принёс записку для вас.">Я почтальон Печкин. Принёс записку для вас.</textarea>
     </label>
-    <label>{{ T.route }} — адресаты, по одному в строке (t.me/name, @name, через запятую)
+
+    <label>текст сообщения
+      <textarea name="template" required
+        placeholder="&lt;ЕгоИмя&gt;, здравствуйте! Суть записки коротко: что вы предлагаете и что нужно сделать.&#10;&#10;С уважением, &lt;МоёИмя&gt;."></textarea>
+    </label>
+    <p class="muted small" style="margin:-4px 0 0">
+      Можно использовать <code>&lt;ЕгоИмя&gt;</code>, <code>&lt;МоёИмя&gt;</code> и варианты в фигурных скобках:
+      <code>{Здравствуйте|Добрый день}</code> — каждому уйдёт свой вариант, тексты не будут одинаковыми.
+    </p>
+
+    <label>получатели — по одному в строке (t.me/name, @name, через запятую)
       <textarea name="recipients" required placeholder="t.me/durov&#10;@username"></textarea>
     </label>
+
     <div class="row">
-      <label>{{ T.gait }}: пауза от, сек<input type="number" name="min_delay" value="25" min="0"></label>
+      <label>пауза от, сек<input type="number" name="min_delay" value="25" min="0"></label>
       <label>пауза до, сек<input type="number" name="max_delay" value="70" min="0"></label>
-      <label>{{ T.self_note }}
-        <select name="allow_self"><option value="0">нет</option><option value="1">да — пробный обход на себе</option></select>
+      <label>не больше, сообщений в час<input type="number" name="hour_limit" value="10" min="1" max="60"></label>
+    </div>
+
+    <div class="row">
+      <label>писать самому себе
+        <select name="allow_self"><option value="0">нет</option><option value="1">да (тест)</option></select>
+      </label>
+      <label>писать тем, кому уже писали
+        <select name="allow_repeat"><option value="0">нет — пропускать</option><option value="1">да, разрешить</option></select>
       </label>
     </div>
-    <button type="submit">Отправить в путь</button>
+
+    <button type="submit">Создать кампанию</button>
     <p class="muted small" style="margin:0">
-      Обход создаётся черновиком: сначала проверьте маршрут, потом жмите «Отправить в путь».
+      Кампания создаётся черновиком: сначала проверьте текст на странице кампании, потом запускайте.
     </p>
   </form>
 </div>
 
-<h2>Все обходы</h2>
+<h2>Все кампании</h2>
 <div class="tablewrap">
 <table>
-  <tr><th>#</th><th>обход</th><th>состояние</th><th>в маршруте</th><th>квитанций</th><th>отметок</th><th></th></tr>
+  <tr><th>#</th><th>название</th><th>статус</th><th>в очереди</th><th>отправлено</th><th>ошибок</th><th></th></tr>
   {% for c in campaigns %}
   <tr>
     <td>{{ c.id }}</td>
@@ -46,16 +67,16 @@
     <td>
       {% if c.status in ('draft','paused') %}
       <form method="post" action="/campaigns/{{ c.id }}/start" style="display:inline">
-        <button class="ghost" type="submit">В путь</button></form>
+        <button class="ghost" type="submit">Запустить</button></form>
       {% elif c.status == 'running' %}
       <form method="post" action="/campaigns/{{ c.id }}/pause" style="display:inline">
-        <button class="ghost" type="submit">Привал</button></form>
+        <button class="ghost" type="submit">Пауза</button></form>
       {% endif %}
       <a class="small" href="/campaigns/{{ c.id }}">детали</a>
     </td>
   </tr>
   {% endfor %}
-  {% if not campaigns %}<tr><td colspan="7" class="muted">пока пусто</td></tr>{% endif %}
+  {% if not campaigns %}<tr><td colspan="7" class="muted">пока нет кампаний</td></tr>{% endif %}
 </table>
 </div>
 {% endblock %}
