@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block title %}Прокси{% endblock %}
+{% block content %}
+<h1>Прокси</h1>
+{% set configured = accounts|selectattr('proxy')|list|length %}
+<p class="muted small">
+  Место под пул прокси готово: файл <code>proxies.txt</code> рядом с <code>config.txt</code>,
+  строка — «аккаунт;прокси». Настроено сейчас: <b>{{ configured }} из {{ accounts|length }}</b>{% if configured < accounts|length %},
+  остальные идут напрямую или через прокси из config.txt{% endif %}.
+</p>
+
+<div class="card">
+  <h2 style="margin-top:0">Как подключить (когда прокси появятся)</h2>
+  <ol class="small" style="margin:0 0 0 18px;padding:0;line-height:1.7">
+    <li>Скопируйте <code>proxies.example.txt</code> в <code>proxies.txt</code>.</li>
+    <li>Впишите по строке на аккаунт: <code>sender1;socks5://логин:пароль@хост:порт</code>.</li>
+    <li>Перезапустите панель и воркер — они подхватят файл при старте.</li>
+    <li>Проверьте: <code>python diagnose.py</code> покажет, через какой прокси идёт каждый аккаунт.</li>
+  </ol>
+</div>
+
+<h2>Аккаунты</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>аккаунт</th><th>прокси</th><th>откуда</th><th>статус</th></tr>
+  {% for a in accounts %}
+  <tr>
+    <td>{{ a.session_name }}</td>
+    <td class="small">{{ a.proxy.split('@')[-1] if a.proxy else '—' }}</td>
+    <td class="small muted">{{ a.proxy_source or 'не задан' }}</td>
+    <td>
+      {% if a.proxy %}<span class="pill ok">настроен</span>
+      {% else %}<span class="pill pending">нет прокси</span>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  {% if not accounts %}<tr><td colspan="4" class="muted">нет аккаунтов в config.txt</td></tr>{% endif %}
+</table>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <p class="small" style="margin:0">
+    <b>Почему это важно.</b> Telegram связывает аккаунты по IP: если с одного адреса идут
+    сообщения с нескольких аккаунтов, при жалобах блокируют всю группу. Поэтому правильный пул —
+    один прокси на аккаунт, желательно в разных подсетях.
+  </p>
+</div>
+{% endblock %}

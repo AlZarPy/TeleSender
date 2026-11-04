@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import random
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 from telethon import TelegramClient
 
@@ -27,7 +29,7 @@ from io_utils import force_utf8
 from proxy_config import describe, parse_proxy
 from sender import FloodDetected, send_one
 
-from panel import brand, db, message
+from panel import brand, db, message, replies
 
 
 def log(message: str) -> None:
@@ -84,7 +86,7 @@ def pick_account(accounts: list[dict], hour_limit: int = 10) -> dict | None:
             continue
         if hour_limit and db.hour_sent(acc["session_name"]) >= hour_limit:
             continue
-        left = account_capacity(acc["session_name"], acc["daily_limit"])
+        left = account_capacity(acc["session_name"], acc.get("effective_limit") or acc["daily_limit"])
         if left > 0:
             usable.append((left, acc))
     if not usable:
@@ -105,9 +107,12 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     if target is None:
         return "done"
 
-    # Защита от повторных сообщений: одному и тому же человеку — один раз и навсегда,
-    # если в кампании не разрешено обратное. Это главный фактор жалоб («мне уже писали»).
-    if not campaign.get("allow_repeat") and db.sent_before(target["username"]):
+    # Защита от повторных сообщений: одному и тому же человеку — один раз,
+    # если в кампании не разрешено обратное. Исключение — те, кто ответил:
+    # им писать повторно нормально, это уже диалог, а не спам.
+    if (not campaign.get("allow_repeat")
+            and db.sent_before(target["username"])
+            and target["username"].lower() not in db.replied_usernames()):
         db.close_target(campaign["id"], target["recipient_id"], "skipped", "already")
         db.event("skipped_repeat", "", f"@{target['username']} уже получал сообщение")
         log(f"↩️ @{target['username']} уже получал — пропускаю")
@@ -163,10 +168,25 @@ async def main_async(args) -> int:
         return 2
     db.sync_accounts([a["session_name"] for a in accounts_cfg])
 
+    imported = db.import_sent_jsonl()
+    if imported:
+        log(f"подтянул историю CLI: {imported} отправок")
+
     pool = Pool(accounts_cfg)
     log(f"аккаунтов в пуле: {len(accounts_cfg)}")
+    last_reply_scan = 0.0
     try:
         while True:
+            # ответы ищем редко: раз в 10 минут, чтобы не тратить лимиты
+            if not args.once and time.time() - last_reply_scan > 600:
+                last_reply_scan = time.time()
+                try:
+                    fresh = await replies.scan_pool(pool, db.accounts_with_config(accounts_cfg))
+                    if fresh:
+                        log(f"💬 ответили: {', '.join('@' + u for u in fresh)}")
+                except Exception as exc:  # noqa: BLE001
+                    db.event("reply_scan_error", "", str(exc)[:120])
+
             campaign = db.q1("SELECT * FROM campaigns WHERE status='running' ORDER BY id LIMIT 1")
             if campaign is None:
                 db.heartbeat("idle", "нет запущенных кампаний")
@@ -216,17 +236,43 @@ async def main_async(args) -> int:
         db.heartbeat("stopped", "воркер остановлен")
 
 
+def single_instance_lock():
+    """Не даёт запустить второй воркер: два процесса отправляли бы дубли."""
+    try:
+        import msvcrt
+    except ImportError:  # не Windows — блокировку не делаем
+        return object()
+    path = Path(__file__).resolve().parent / "worker.lock"
+    handle = open(path, "a+")
+    try:
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        handle.close()
+        return None
+    return handle
+
+
 def main() -> int:
     force_utf8()
     parser = argparse.ArgumentParser(description="Воркер рассылки «Почтамт»")
     parser.add_argument("--once", action="store_true", help="одна отправка и выход (тест)")
     parser.add_argument("--config", default=None, help="файл аккаунтов")
     args = parser.parse_args()
+
+    lock = None
+    if not args.once:
+        lock = single_instance_lock()
+        if lock is None:
+            log("воркер уже запущен — второй экземпляр не нужен")
+            return 1
     try:
         return asyncio.run(main_async(args))
     except KeyboardInterrupt:
         log("остановлен пользователем")
         return 0
+    finally:
+        if lock is not None and hasattr(lock, "close"):
+            lock.close()
 
 
 if __name__ == "__main__":

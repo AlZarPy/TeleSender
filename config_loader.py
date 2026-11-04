@@ -79,6 +79,42 @@ def parse_account(line: str) -> dict:
     return account
 
 
+PROXIES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "proxies.txt")
+
+
+def load_proxies(path: str | None = None, *, quiet: bool = True) -> dict[str, str]:
+    """Отдельный файл прокси: строка «аккаунт;прокси».
+
+    Нужен, чтобы менять прокси, не трогая config.txt с api_hash.
+    Пустой/отсутствующий файл — просто нет переопределений.
+    """
+    file = path or os.environ.get("SENDERX_PROXIES", PROXIES_PATH)
+    overrides: dict[str, str] = {}
+    if not os.path.exists(file):
+        return overrides
+    with open(file, encoding="utf-8") as fh:
+        for lineno, raw in enumerate(fh, 1):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if ";" not in line:
+                if not quiet:
+                    print(f"⚠️ proxies.txt строка {lineno}: нужен формат «аккаунт;прокси»")
+                continue
+            name, proxy = (part.strip() for part in line.split(";", 1))
+            if not name or not proxy:
+                continue
+            try:
+                from proxy_config import parse_proxy  # локальный импорт: нужен только здесь
+                parse_proxy(proxy)
+            except Exception as exc:  # noqa: BLE001 — прокси проверяем сразу
+                if not quiet:
+                    print(f"⚠️ proxies.txt строка {lineno} пропущена: {exc}")
+                continue
+            overrides[name.lower()] = proxy
+    return overrides
+
+
 def load_config_from_txt(path: str | None = None, *, quiet: bool = False) -> list[dict]:
     config_path = path or os.environ.get("SENDERX_CONFIG", CONFIG_PATH)
     if not os.path.exists(config_path):
@@ -102,6 +138,16 @@ def load_config_from_txt(path: str | None = None, *, quiet: bool = False) -> lis
     duplicates = {n for n in names if names.count(n) > 1}
     if duplicates:
         raise ConfigError("повторяются session_name: " + ", ".join(sorted(duplicates)))
+
+    # прокси из отдельного файла главнее, чем из config.txt
+    overrides = load_proxies(quiet=quiet)
+    for acc in accounts:
+        key = acc["session_name"].lower()
+        if key in overrides:
+            acc["proxy"] = overrides[key]
+            acc["proxy_source"] = "proxies.txt"
+        else:
+            acc["proxy_source"] = "config.txt" if acc.get("proxy") else ""
 
     if not quiet:
         for acc in accounts:

@@ -25,10 +25,11 @@
       {% if a.status != 'active' %}<span class="pill bad">пауза</span>
       {% elif a.paused_now %}<span class="pill pending">flood-пауза</span>
       {% elif not a.session_exists %}<span class="pill bad">нет сессии</span>
+      {% elif a.warmup_day and a.warmup_day <= a.warmup_days %}<span class="pill pending">прогрев, день {{ a.warmup_day }}</span>
       {% else %}<span class="pill ok">готов</span>{% endif %}
     </td>
     <td>{{ a.sent_today }}</td>
-    <td>{{ a.daily_limit }}</td>
+    <td>{{ a.effective_limit }}{% if a.effective_limit != a.daily_limit %} <span class="muted small">из {{ a.daily_limit }}</span>{% endif %}</td>
     <td>{{ a.left_today }}</td>
     <td class="small muted">{{ a.proxy.split('@')[-1] if a.proxy else 'напрямую' }}</td>
   </tr>

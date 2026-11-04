@@ -3,8 +3,7 @@
 {% block content %}
 <h1>Настройки</h1>
 <p class="muted small">
-  Аккаунты берутся из <code>config.txt</code>. Здесь задаётся дневная квота и статус.
-  Новому аккаунту ставьте 15–20 сообщений в сутки на первую неделю, рабочим — 30–50.
+  Аккаунты берутся из <code>config.txt</code>. Здесь задаётся дневная квота, прогрев и статус.
 </p>
 
 {% for a in accounts %}
@@ -15,13 +14,18 @@
       <div class="small muted">
         {{ a.my_name }} · сессия: {{ 'есть' if a.session_exists else 'нет' }} ·
         прокси: {{ a.proxy.split('@')[-1] if a.proxy else 'напрямую' }} ·
-        сегодня {{ a.sent_today }}/{{ a.daily_limit }}
+        сегодня {{ a.sent_today }}/{{ a.effective_limit }}
+        {% if a.warmup_day and a.warmup_day <= a.warmup_days %}
+          · <span class="pill pending">прогрев: день {{ a.warmup_day }} из {{ a.warmup_days }}</span>
+        {% endif %}
       </div>
     </div>
   </div>
   <form method="post" action="/settings/account" class="row" style="margin-top:10px">
     <input type="hidden" name="session_name" value="{{ a.session_name }}">
     <label>квота в сутки<input type="number" name="daily_limit" value="{{ a.daily_limit }}" min="0" max="500"></label>
+    <label>прогрев с даты<input type="date" name="warmup_start" value="{{ a.warmup_start }}"></label>
+    <label>дней прогрева<input type="number" name="warmup_days" value="{{ a.warmup_days }}" min="1" max="60"></label>
     <label>статус
       <select name="status">
         <option value="active" {{ 'selected' if a.status == 'active' }}>работает</option>
@@ -30,6 +34,12 @@
     </label>
     <button type="submit">Сохранить</button>
   </form>
+  {% if a.warmup_start %}
+  <p class="small muted" style="margin:8px 0 0">
+    Прогрев ограничивает суточную квоту: 15 → 15 → 20 → 20 → 25 → 30 → 30 по дням,
+    после {{ a.warmup_days }} дней действует квота {{ a.daily_limit }}.
+  </p>
+  {% endif %}
 </div>
 {% endfor %}
 
@@ -37,12 +47,24 @@
 <div class="card muted">Нет аккаунтов: добавьте строки в <code>config.txt</code> и перезапустите панель.</div>
 {% endif %}
 
+<h2>Ответили</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>получатель</th><th>имя</th><th>когда ответил</th></tr>
+  {% for r in replied %}
+  <tr><td>@{{ r.username }}</td><td>{{ r.first_name }}</td><td class="small muted">{{ r.last_reply }}</td></tr>
+  {% endfor %}
+  {% if not replied %}<tr><td colspan="3" class="muted">ответов пока нет — воркер проверяет диалоги раз в 10 минут</td></tr>{% endif %}
+</table>
+</div>
+
 <h2>Как это работает</h2>
 <div class="card small">
   <p>Панель: <code>http://{{ lan_ip }}:{{ port }}</code> · пароль в <code>.env</code> → <code>PANEL_PASSWORD</code>.</p>
   <p>Проверка канала: <code>python diagnose.py</code> · журнал отправок: <code>sent.jsonl</code> и база панели.</p>
   <p>Воркер: <code>python -m panel.worker</code> (или <code>run_worker.cmd</code>) — без него кампании стоят на месте.</p>
+  <p>Ответы: <code>python -m panel.replies</code> — помечает тех, кто ответил, чтобы им можно было писать снова.</p>
   <p>Правила, которые снижают жалобы: не больше 10 сообщений в час с аккаунта, паузы 25–70 секунд,
-     разные варианты текста, обращение по имени, никому не писать дважды.</p>
+     разные варианты текста, обращение по имени, никому не писать дважды, кроме тех, кто ответил.</p>
 </div>
 {% endblock %}

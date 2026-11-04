@@ -353,16 +353,30 @@ def logs_page(request: Request, user: str = Depends(current_user)):
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, user: str = Depends(current_user)):
     accounts = db.accounts_with_config(config_accounts())
-    return render(request, "settings.html", accounts=accounts)
+    return render(request, "settings.html", accounts=accounts,
+                  replied=db.replied(limit=10), today=time.strftime("%Y-%m-%d"))
 
 
 @app.post("/settings/account")
 def settings_account(session_name: str = Form(...), daily_limit: int = Form(20),
-                     status: str = Form("active"), user: str = Depends(current_user)):
+                     status: str = Form("active"), warmup_start: str = Form(""),
+                     warmup_days: int = Form(7), user: str = Depends(current_user)):
+    warmup_start = warmup_start.strip()
     db.set_account(session_name, daily_limit=daily_limit, status=status,
-                   paused_until=0 if status == "active" else time.time() + 3600)
-    db.event("account_settings", session_name, f"квота={daily_limit}, статус={status}")
+                   paused_until=0 if status == "active" else time.time() + 3600,
+                   warmup_start=warmup_start,
+                   warmup_days=max(1, min(60, warmup_days)))
+    note = f"квота={daily_limit}, статус={status}"
+    if warmup_start:
+        note += f", прогрев с {warmup_start} ({warmup_days} дн.)"
+    db.event("account_settings", session_name, note)
     return RedirectResponse("/settings", status_code=303)
+
+
+@app.get("/proxies", response_class=HTMLResponse)
+def proxies_page(request: Request, user: str = Depends(current_user)):
+    accounts = db.accounts_with_config(config_accounts())
+    return render(request, "proxies.html", accounts=accounts)
 
 
 def main() -> None:

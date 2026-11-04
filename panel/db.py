@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     daily_limit  INTEGER NOT NULL DEFAULT 20,
     status       TEXT NOT NULL DEFAULT 'active',   -- active | paused
     paused_until REAL NOT NULL DEFAULT 0,
+    warmup_start TEXT NOT NULL DEFAULT '',         -- дата начала прогрева (YYYY-MM-DD), пусто = не греем
+    warmup_days  INTEGER NOT NULL DEFAULT 7,
     note         TEXT NOT NULL DEFAULT ''
 );
 
@@ -32,6 +34,8 @@ CREATE TABLE IF NOT EXISTS recipients (
     first_name TEXT NOT NULL DEFAULT '',
     tags       TEXT NOT NULL DEFAULT '',
     status     TEXT NOT NULL DEFAULT 'active',     -- active | blocked
+    replied    INTEGER NOT NULL DEFAULT 0,         -- ответил: писать повторно можно
+    last_reply TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -112,16 +116,54 @@ def init() -> None:
 def _migrate() -> None:
     """Догоняем схему для баз, созданных до появления новых колонок."""
     want = {
-        "intro": "TEXT NOT NULL DEFAULT ''",
-        "hour_limit": "INTEGER NOT NULL DEFAULT 10",
-        "allow_repeat": "INTEGER NOT NULL DEFAULT 0",
+        "campaigns": {
+            "intro": "TEXT NOT NULL DEFAULT ''",
+            "hour_limit": "INTEGER NOT NULL DEFAULT 10",
+            "allow_repeat": "INTEGER NOT NULL DEFAULT 0",
+        },
+        "accounts": {
+            "warmup_start": "TEXT NOT NULL DEFAULT ''",
+            "warmup_days": "INTEGER NOT NULL DEFAULT 7",
+        },
+        "recipients": {
+            "replied": "INTEGER NOT NULL DEFAULT 0",
+            "last_reply": "TEXT NOT NULL DEFAULT ''",
+        },
     }
     with connect() as conn:
-        have = {row["name"] for row in conn.execute("PRAGMA table_info(campaigns)")}
-        for column, ddl in want.items():
-            if column not in have:
-                conn.execute(f"ALTER TABLE campaigns ADD COLUMN {column} {ddl}")
+        for table, columns in want.items():
+            have = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for column, ddl in columns.items():
+                if column not in have:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
         conn.commit()
+
+
+# ── прогрев (обкатка) ───────────────────────────────────────────────────────
+WARMUP_CURVE = (15, 15, 20, 20, 25, 30, 30)  # потолок по дням, дальше — дневная квота
+
+
+def warmup_day(warmup_start: str, today: str | None = None) -> int:
+    """Какой день прогрева идёт. 0 — прогрев не запущен."""
+    if not warmup_start:
+        return 0
+    try:
+        from datetime import date
+        started = date.fromisoformat(warmup_start[:10])
+        now = date.fromisoformat(today[:10]) if today else date.today()
+        return max(1, (now - started).days + 1)
+    except (ValueError, TypeError):
+        return 0
+
+
+def effective_limit(daily_limit: int, warmup_start: str, warmup_days: int = 7,
+                    today: str | None = None) -> int:
+    """Квота с учётом прогрева: новому аккаунту больше кривой не даём."""
+    day = warmup_day(warmup_start, today)
+    if not day or day > warmup_days:
+        return daily_limit
+    ceiling = WARMUP_CURVE[min(day, len(WARMUP_CURVE)) - 1]
+    return min(daily_limit, ceiling)
 
 
 def q(sql: str, params: tuple = ()) -> list[sqlite3.Row]:
@@ -162,12 +204,21 @@ def accounts_with_config(config_accounts: list[dict]) -> list[dict]:
     out = []
     for acc in config_accounts:
         name = acc["session_name"]
-        row = stored.get(name, {"daily_limit": 20, "status": "active", "paused_until": 0, "note": ""})
+        row = stored.get(name, {"daily_limit": 20, "status": "active", "paused_until": 0,
+                                "warmup_start": "", "warmup_days": 7, "note": ""})
         paused = row["status"] == "paused"
-        left = row["daily_limit"] - sent_today.get(name, 0)
+        warmup_start = row.get("warmup_start") or ""
+        warmup_days = row.get("warmup_days") or 7
+        day = warmup_day(warmup_start)
+        limit = effective_limit(row["daily_limit"], warmup_start, warmup_days)
+        left = limit - sent_today.get(name, 0)
         out.append({
             **acc,
             "daily_limit": row["daily_limit"],
+            "effective_limit": limit,
+            "warmup_start": warmup_start,
+            "warmup_days": warmup_days,
+            "warmup_day": day,
             "status": row["status"],
             "paused_until": row["paused_until"],
             "note": row["note"],
@@ -180,16 +231,14 @@ def accounts_with_config(config_accounts: list[dict]) -> list[dict]:
 
 
 def set_account(name: str, daily_limit: int | None = None, status: str | None = None,
-                paused_until: float | None = None, note: str | None = None) -> None:
+                paused_until: float | None = None, note: str | None = None,
+                warmup_start: str | None = None, warmup_days: int | None = None) -> None:
     execute("INSERT OR IGNORE INTO accounts(session_name) VALUES (?)", (name,))
-    if daily_limit is not None:
-        execute("UPDATE accounts SET daily_limit=? WHERE session_name=?", (daily_limit, name))
-    if status is not None:
-        execute("UPDATE accounts SET status=? WHERE session_name=?", (status, name))
-    if paused_until is not None:
-        execute("UPDATE accounts SET paused_until=? WHERE session_name=?", (paused_until, name))
-    if note is not None:
-        execute("UPDATE accounts SET note=? WHERE session_name=?", (note, name))
+    for column, value in (("daily_limit", daily_limit), ("status", status),
+                          ("paused_until", paused_until), ("note", note),
+                          ("warmup_start", warmup_start), ("warmup_days", warmup_days)):
+        if value is not None:
+            execute(f"UPDATE accounts SET {column}=? WHERE session_name=?", (value, name))
 
 
 # ── получатели ──────────────────────────────────────────────────────────────
@@ -311,3 +360,63 @@ def worker_alive(max_age: float = 25.0) -> tuple[bool, dict]:
         return False, {}
     data = dict(row)
     return (time.time() - data["ts"]) < max_age, data
+
+
+# ── ответы получателей (обратная почта) ─────────────────────────────────────
+def mark_replied(username: str, when: str = "") -> bool:
+    """Отмечает, что человек ответил. Возвращает True, если отметка новая."""
+    row = q1("SELECT replied FROM recipients WHERE username=?", (username,))
+    if row is None:
+        return False
+    was = int(row["replied"] or 0)
+    execute("UPDATE recipients SET replied=1, last_reply=? WHERE username=?",
+            (when or time.strftime("%Y-%m-%d %H:%M:%S"), username))
+    return not was
+
+
+def replied(limit: int = 20) -> list[sqlite3.Row]:
+    return q("""SELECT username, first_name, last_reply FROM recipients
+                WHERE replied=1 ORDER BY last_reply DESC LIMIT ?""", (limit,))
+
+
+def replied_usernames() -> set[str]:
+    return {r["username"].lower() for r in q("SELECT username FROM recipients WHERE replied=1")}
+
+
+# ── история отправок из CLI (sent.jsonl) ────────────────────────────────────
+def import_sent_jsonl(path: str = "sent.jsonl") -> int:
+    """Подтягивает отправки, сделанные через main.py, чтобы не писать людям дважды."""
+    import json
+    from pathlib import Path as _Path
+
+    file = _Path(path)
+    if not file.exists():
+        return 0
+    added = 0
+    with connect() as conn:
+        for line in file.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            username = str(item.get("username") or item.get("recipient") or "").strip()
+            if not username:
+                continue
+            ts = str(item.get("ts") or "")[:19].replace("T", " ") or time.strftime("%Y-%m-%d %H:%M:%S")
+            account = str(item.get("account") or "cli")
+            ok = 1 if item.get("ok") else 0
+            exists = conn.execute(
+                "SELECT 1 FROM sends WHERE recipient=? AND ts=? LIMIT 1", (username, ts)).fetchone()
+            if exists:
+                continue
+            conn.execute("""INSERT INTO sends(campaign_id, recipient, account, ok, reason, ts)
+                            VALUES (0,?,?,?,?,?)""",
+                         (username, account, ok, str(item.get("reason") or ""), ts))
+            added += 1
+        conn.commit()
+    if added:
+        event("history_import", "cli", f"подтянуто отправок из sent.jsonl: {added}")
+    return added
