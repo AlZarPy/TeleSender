@@ -1,0 +1,46 @@
+{% extends "layout.html" %}
+{% block title %}Настройки{% endblock %}
+{% block content %}
+<h1>Настройки аккаунтов</h1>
+<p class="muted small">
+  Аккаунты читаются из <code>config.txt</code>; здесь задаются только квоты и статус.
+  Для 10–30 аккаунтов держите холодный лимит 15–20 в сутки на новый аккаунт и 30–50 на прогретый.
+</p>
+
+{% for a in accounts %}
+<div class="card" style="margin-bottom:12px">
+  <div class="row" style="align-items:center">
+    <div>
+      <strong>{{ a.session_name }}</strong>
+      <div class="small muted">
+        {{ a.my_name }} · {{ 'сессия есть' if a.session_exists else 'сессии нет' }} ·
+        прокси: {{ a.proxy.split('@')[-1] if a.proxy else 'напрямую' }} ·
+        сегодня {{ a.sent_today }}/{{ a.daily_limit }}
+      </div>
+    </div>
+  </div>
+  <form method="post" action="/settings/account" class="row" style="margin-top:10px">
+    <input type="hidden" name="session_name" value="{{ a.session_name }}">
+    <label>квота в сутки<input type="number" name="daily_limit" value="{{ a.daily_limit }}" min="0" max="500"></label>
+    <label>статус
+      <select name="status">
+        <option value="active" {{ 'selected' if a.status == 'active' }}>активен</option>
+        <option value="paused" {{ 'selected' if a.status == 'paused' }}>на паузе</option>
+      </select>
+    </label>
+    <button type="submit">Сохранить</button>
+  </form>
+</div>
+{% endfor %}
+
+{% if not accounts %}
+<div class="card muted">В <code>config.txt</code> нет аккаунтов — добавьте строки и перезапустите панель.</div>
+{% endif %}
+
+<h2>Доступ</h2>
+<div class="card small">
+  Панель: <code>http://{{ lan_ip }}:{{ port }}</code> · пароль в <code>.env</code> →
+  <code>PANEL_PASSWORD</code>. Воркер запускается отдельно:
+  <code>python -m panel.worker</code>.
+</div>
+{% endblock %}

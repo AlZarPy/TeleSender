@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Почтамт{% endblock %} · Почтамт</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">📮 Почтамт</a>
+  <nav>
+    <a href="/">Дашборд</a>
+    <a href="/campaigns">Кампании</a>
+    <a href="/base">База</a>
+    <a href="/logs">Журнал</a>
+    <a href="/settings">Настройки</a>
+    <a class="exit" href="/logout">Выйти</a>
+  </nav>
+  <span class="badge {{ 'on' if worker_alive else 'off' }}">
+    воркер: {{ 'работает' if worker_alive else 'остановлен' }}
+  </span>
+</header>
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<footer>
+  {{ panel }} · http://{{ lan_ip }}:{{ port }} · {{ worker.status if worker else '—' }}
+  {{ worker.detail if worker and worker.detail else '' }}
+</footer>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{% extends "layout.html" %}
+{% block title %}Журнал{% endblock %}
+{% block content %}
+<h1>Журнал</h1>
+
+<h2>Отправки</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>время</th><th>кампания</th><th>аккаунт</th><th>получатель</th><th>результат</th></tr>
+  {% for s in sends %}
+  <tr>
+    <td class="small">{{ s.ts }}</td><td>{{ s.campaign_id }}</td><td>{{ s.account }}</td>
+    <td>{{ s.recipient }}</td>
+    <td>{% if s.ok %}<span class="pill sent">доставлено</span>{% else %}<span class="pill failed">{{ s.reason or 'ошибка' }}</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  {% if not sends %}<tr><td colspan="5" class="muted">пусто</td></tr>{% endif %}
+</table>
+</div>
+
+<h2>События</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>время</th><th>тип</th><th>аккаунт</th><th>детали</th></tr>
+  {% for e in events %}
+  <tr><td class="small">{{ e.ts }}</td><td>{{ e.kind }}</td><td>{{ e.account }}</td><td class="wrap">{{ e.detail }}</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

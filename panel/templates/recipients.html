@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+{% block title %}База{% endblock %}
+{% block content %}
+<h1>База получателей <span class="muted small">всего {{ total }}</span></h1>
+
+<div class="card">
+  <h2 style="margin-top:0">Импорт</h2>
+  <form method="post" action="/base/import">
+    <label>список — по одному в строке; можно <code>username;Имя</code>
+      <textarea name="recipients" required placeholder="durov;Павел&#10;@username"></textarea>
+    </label>
+    <label>теги (необязательно)<input name="tags" placeholder="клиенты, музыка"></label>
+    <button type="submit">Добавить</button>
+  </form>
+  {% if request.query_params.get('imported') %}
+    <p class="pill ok">добавлено: {{ request.query_params.get('imported') }}</p>
+  {% endif %}
+</div>
+
+<h2>Список</h2>
+<form method="get" action="/base" class="row" style="margin-bottom:12px">
+  <input name="q" value="{{ query }}" placeholder="поиск по username, имени, тегам">
+  <button class="ghost" type="submit">Найти</button>
+</form>
+
+<div class="tablewrap">
+<table>
+  <tr><th>username</th><th>имя</th><th>теги</th><th>статус</th><th></th></tr>
+  {% for r in recipients %}
+  <tr>
+    <td>{{ r.username }}</td><td>{{ r.first_name }}</td><td class="small muted">{{ r.tags }}</td>
+    <td>{% if r.status == 'active' %}<span class="pill ok">активен</span>{% else %}<span class="pill bad">блок</span>{% endif %}</td>
+    <td>
+      <form method="post" action="/base/block" style="display:inline">
+        <input type="hidden" name="username" value="{{ r.username }}">
+        <input type="hidden" name="blocked" value="{{ 0 if r.status == 'blocked' else 1 }}">
+        <button class="ghost small" type="submit">{{ 'Разблокировать' if r.status == 'blocked' else 'В блок' }}</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  {% if not recipients %}<tr><td colspan="5" class="muted">база пуста</td></tr>{% endif %}
+</table>
+</div>
+{% endblock %}

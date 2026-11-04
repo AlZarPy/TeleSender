@@ -1,0 +1,58 @@
+{% extends "layout.html" %}
+{% block title %}Кампании{% endblock %}
+{% block content %}
+<h1>Кампании</h1>
+
+<div class="card">
+  <h2 style="margin-top:0">Новая кампания</h2>
+  <form method="post" action="/campaigns">
+    <div class="row">
+      <label>название<input name="name" placeholder="Например: Записка для Музы" required></label>
+      <label>окно, с часа<input type="number" name="window_start" value="9" min="0" max="23"></label>
+      <label>по час<input type="number" name="window_end" value="21" min="0" max="23"></label>
+    </div>
+    <label>текст сообщения
+      <textarea name="template" required placeholder="Привет, <ЕгоИмя>! Я <МоёИмя>. Можно {вариант|второй вариант} текста."></textarea>
+    </label>
+    <label>получатели — по одному в строке, можно t.me/name, @name, через запятую
+      <textarea name="recipients" required placeholder="t.me/durov&#10;@username"></textarea>
+    </label>
+    <div class="row">
+      <label>пауза от, сек<input type="number" name="min_delay" value="25" min="0"></label>
+      <label>пауза до, сек<input type="number" name="max_delay" value="70" min="0"></label>
+      <label>разрешить отправку себе
+        <select name="allow_self"><option value="0">нет</option><option value="1">да (тест)</option></select>
+      </label>
+    </div>
+    <button type="submit">Создать кампанию</button>
+  </form>
+</div>
+
+<h2>Все кампании</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>#</th><th>название</th><th>статус</th><th>очередь</th><th>доставлено</th><th>ошибок</th><th>действия</th></tr>
+  {% for c in campaigns %}
+  <tr>
+    <td>{{ c.id }}</td>
+    <td><a href="/campaigns/{{ c.id }}">{{ c.name }}</a></td>
+    <td><span class="pill {{ c.status }}">{{ c.status }}</span></td>
+    <td>{{ c.stats.pending }}</td>
+    <td>{{ c.stats.sent }}</td>
+    <td>{{ c.stats.failed }}</td>
+    <td>
+      {% if c.status in ('draft','paused') %}
+      <form method="post" action="/campaigns/{{ c.id }}/start" style="display:inline">
+        <button class="ghost" type="submit">Запустить</button></form>
+      {% elif c.status == 'running' %}
+      <form method="post" action="/campaigns/{{ c.id }}/pause" style="display:inline">
+        <button class="ghost" type="submit">Пауза</button></form>
+      {% endif %}
+      <a class="small" href="/campaigns/{{ c.id }}">детали</a>
+    </td>
+  </tr>
+  {% endfor %}
+  {% if not campaigns %}<tr><td colspan="7" class="muted">пусто</td></tr>{% endif %}
+</table>
+</div>
+{% endblock %}

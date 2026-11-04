@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход · Почтамт</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="login card">
+  <h1>📮 Почтамт</h1>
+  <p class="muted small">Панель рассылки SenderX. Введите пароль из <code>.env</code> (PANEL_PASSWORD).</p>
+  {% if error %}<p class="pill bad">неверный пароль</p>{% endif %}
+  <form method="post" action="/login">
+    <label>пароль<input type="password" name="password" autofocus required></label>
+    <button type="submit">Войти</button>
+  </form>
+</div>
+</body>
+</html>

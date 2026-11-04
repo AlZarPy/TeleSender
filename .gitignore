@@ -11,3 +11,10 @@ login.log
 .venv/
 __pycache__/
 *.pyc
+
+# панель и секреты
+.env
+panel.db
+panel.db-*
+*.sqlite
+*.sqlite3
