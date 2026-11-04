@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import getpass
+import os
 import sys
 import time
 
@@ -40,6 +41,7 @@ def log(message: str) -> None:
 
 
 DRY_RUN = "--dry-run" in sys.argv
+QR_MODE = "--qr" in sys.argv
 
 
 async def login(account: dict) -> bool:
@@ -145,6 +147,50 @@ async def login(account: dict) -> bool:
         await client.disconnect()
 
 
+async def login_qr(account: dict) -> bool:
+    """Вход по QR/ссылке: пользователь подтверждает вход в своём Telegram, код не нужен."""
+    tag = f"{account['my_name']}/{account['session_name']}"
+    proxy = parse_proxy(account.get("proxy"))
+    log(f"qr-вход: аккаунт={account['session_name']} сеть={describe(proxy)}")
+    client = TelegramClient(account["session_name"], account["api_id"], account["api_hash"], proxy=proxy)
+    try:
+        await client.connect()
+        if await client.is_user_authorized():
+            me = await client.get_me()
+            print(f"✓ {tag}: уже авторизован как @{me.username or me.id}")
+            log(f"qr: уже авторизован @{me.username}")
+            return True
+
+        for attempt in range(1, int(os.environ.get("SENDERX_QR_ATTEMPTS", "6")) + 1):
+            qr = await client.qr_login()
+            print(f"\n{tag}: откройте ссылку в Telegram и подтвердите вход (попытка {attempt}/5):")
+            print(f"  {qr.url}")
+            print("  Ссылка живёт ~30 секунд. После подтверждения окно закроется само.")
+            log(f"qr: выдана ссылка, попытка {attempt}")
+            try:
+                await qr.wait(timeout=35)
+            except asyncio.TimeoutError:
+                print("  …ссылка истекла, генерирую новую")
+                log("qr: таймаут, обновляю ссылку")
+                continue
+            me = await client.get_me()
+            print(f"  ✅ вошли как @{me.username or me.id} ({me.first_name or ''})")
+            log(f"qr: вход завершён @{me.username} id={me.id}")
+            return True
+        print("  ❌ ссылки истекли — запустите снова")
+        return False
+    except (ConnectionError, OSError) as exc:
+        log(f"qr сеть: {type(exc).__name__}: {exc}")
+        print(f"  ❌ Telegram недоступен: {type(exc).__name__}")
+        return False
+    except Exception as exc:  # noqa: BLE001
+        log(f"qr ошибка: {type(exc).__name__}: {exc}")
+        print(f"  ❌ Ошибка: {type(exc).__name__}: {exc}")
+        return False
+    finally:
+        await client.disconnect()
+
+
 async def main() -> int:
     _utf8_stdout()
     try:
@@ -159,7 +205,10 @@ async def main() -> int:
     results = []
     for account in accounts:
         try:
-            results.append(await login(account))
+            if QR_MODE:
+                results.append(await login_qr(account))
+            else:
+                results.append(await login(account))
         except (EOFError, KeyboardInterrupt):
             print("\n⏹ вход прерван (окно закрыто или нажали Ctrl+C)")
             results.append(False)
