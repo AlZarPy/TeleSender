@@ -84,7 +84,16 @@ python main.py --message-file message.txt
 ```
 
 Ключи: `--config`, `--recipients`, `--message`, `--message-file`, `--limit`,
-`--min-delay`, `--max-delay`, `--dry-run`, `--yes`, `--sent-log`, `--ignore-history`.
+`--min-delay`, `--max-delay`, `--dry-run`, `--yes`, `--sent-log`, `--ignore-history`,
+`--allow-self` (разрешить отправку себе — для сквозного теста в «Избранное»),
+`--check-net` (проверка канала).
+
+Первый живой тест без риска для чужих:
+
+```bash
+python main.py --limit 1 --min-delay 0 --max-delay 0 --yes --allow-self \
+  --message "Тест SenderX"        # получатель — вы сами, уходит в «Избранное»
+```
 
 Итог прогона: отправлено / ошибок / упёрлись в лимит / осталось, с причинами ошибок
 (`not_found`, `privacy`, `forbidden`, `self`, `error:ИмяКласса`).

@@ -83,6 +83,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--yes", action="store_true", help="не спрашивать подтверждение")
     p.add_argument("--sent-log", default=DEFAULT_SENT_LOG, help="журнал отправленных (по умолчанию sent.jsonl)")
     p.add_argument("--ignore-history", action="store_true", help="не пропускать тех, кому уже отправляли")
+    p.add_argument("--allow-self", action="store_true",
+                   help="разрешить отправку самому себе (тест в «Избранное»), по умолчанию такие получатели пропускаются")
     p.add_argument("--check-net", action="store_true",
                    help="проверить доступность Telegram (учитывая proxy=) и выйти")
     return p
@@ -192,7 +194,7 @@ async def run(args) -> int:
                 print(f"⚠️ {tag}: сессия не авторизована — запустите python auth_login.py")
                 continue
             me = await client.get_me()
-            me_id = getattr(me, "id", None)
+            me_id = None if args.allow_self else getattr(me, "id", None)
             quota = account["max_per_account"]
             sent_here = 0
             while queue and sent_here < quota:
