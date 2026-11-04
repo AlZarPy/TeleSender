@@ -42,6 +42,10 @@ async def login(account: dict) -> bool:
 
         print(f"\n🔐 {tag}: требуется вход")
         phone = input("  номер телефона (+7…): ").strip()
+        phone = "".join(ch for ch in phone if ch.isdigit() or ch == "+")
+        if len(phone) < 8:
+            print("  ❌ номер не введён или слишком короткий — вход отменён")
+            return False
         try:
             await client.send_code_request(phone)
         except PhoneNumberInvalidError:
@@ -49,6 +53,9 @@ async def login(account: dict) -> bool:
             return False
 
         code = getpass.getpass("  код из Telegram (ввод скрыт): ").strip()
+        if not code:
+            print("  ❌ код не введён — вход отменён")
+            return False
         try:
             await client.sign_in(phone, code)
         except SessionPasswordNeededError:
@@ -88,7 +95,11 @@ async def main() -> int:
 
     results = []
     for account in accounts:
-        results.append(await login(account))
+        try:
+            results.append(await login(account))
+        except (EOFError, KeyboardInterrupt):
+            print("\n⏹ вход прерван (окно закрыто или нажали Ctrl+C)")
+            results.append(False)
 
     print("\n" + "=" * 46)
     print(f"Готовы к работе: {sum(results)} из {len(results)}")
