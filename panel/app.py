@@ -265,16 +265,24 @@ def campaign_page(request: Request, cid: int, user: str = Depends(current_user))
     notes = message.lint(campaign["template"], campaign.get("intro") or "")
     return render(request, "campaign.html", campaign=campaign, stats=stats,
                   targets=targets, sends=sends, notes=notes, worst=message.worst_level(notes),
-                  base_left=db.base_not_in_campaign(cid))
+                  base_left=db.base_not_in_campaign(cid),
+                  tags=db.tag_names(),
+                  seg_never=len(db.segment(cid, never_written=True)),
+                  seg_replied=len(db.segment(cid, answered_only=True)))
 
 
 @app.post("/campaigns/{cid}/add")
 def campaign_add_recipients(cid: int, usernames: str = Form(""), all_base: int = Form(0),
-                            user: str = Depends(current_user)):
-    """Добавить в кампанию людей из общей базы: список вручную или всю базу разом."""
+                            tag: str = Form(""), never_written: int = Form(0),
+                            answered_only: int = Form(0), user: str = Depends(current_user)):
+    """Добавить в кампанию: список вручную, всю базу или сегмент по фильтру."""
     row = db.q1("SELECT * FROM campaigns WHERE id=?", (cid,))
     if row is None:
         raise HTTPException(404)
+    if tag or never_written or answered_only:
+        added = db.add_segment(cid, tag=tag.strip(), never_written=bool(never_written),
+                               answered_only=bool(answered_only))
+        return RedirectResponse(f"/campaigns/{cid}?added={added}", status_code=303)
     if all_base:
         added = db.add_targets(cid)
     else:
@@ -333,17 +341,32 @@ def campaign_action(cid: int, action: str, user: str = Depends(current_user)):
 
 # ── база получателей ────────────────────────────────────────────────────────
 @app.get("/base", response_class=HTMLResponse)
-def base_page(request: Request, q: str = "", user: str = Depends(current_user)):
+def base_page(request: Request, q: str = "", tag: str = "",
+              user: str = Depends(current_user)):
     sql = "SELECT * FROM recipients"
-    params: tuple = ()
+    where: list[str] = []
+    params: list = []
     if q.strip():
-        sql += " WHERE username LIKE ? OR first_name LIKE ? OR tags LIKE ?"
         like = f"%{q.strip()}%"
-        params = (like, like, like)
-    rows = [dict(r) for r in db.q(sql + " ORDER BY id DESC LIMIT 500", params)]
+        where.append("(username LIKE ? OR first_name LIKE ? OR tags LIKE ?)")
+        params += [like, like, like]
+    if tag.strip():
+        where.append("(',' || replace(tags,' ','') || ',') LIKE ?")
+        params.append(f"%,{tag.strip().replace(' ', '')},%")
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    rows = [dict(r) for r in db.q(sql + " ORDER BY id DESC LIMIT 500", tuple(params))]
     total = db.q1("SELECT COUNT(*) c FROM recipients")
-    return render(request, "recipients.html", recipients=rows, query=q,
-                  total=total["c"] if total else 0)
+    return render(request, "recipients.html", recipients=rows, query=q, tag=tag,
+                  total=total["c"] if total else 0, tags=db.tag_names())
+
+
+@app.post("/base/tag")
+def base_tag(username: str = Form(...), tags: str = Form(""),
+             user: str = Depends(current_user)):
+    """Проставить теги человеку: так база делится на сегменты."""
+    db.execute("UPDATE recipients SET tags=? WHERE username=?", (tags.strip(), username))
+    return RedirectResponse(f"/base?q={username}", status_code=303)
 
 
 @app.post("/base/import")

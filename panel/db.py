@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 import os
+import re
 
 # путь к базе можно вынести наружу (Docker, systemd): по умолчанию рядом с проектом
 DB_PATH = Path(os.environ.get("SENDERX_DB") or (Path(__file__).resolve().parent.parent / "panel.db"))
@@ -602,3 +603,54 @@ def base_not_in_campaign(campaign_id: int) -> int:
                       (SELECT recipient_id FROM campaign_targets WHERE campaign_id=?)""",
              (campaign_id,))
     return int(row["c"]) if row else 0
+
+
+# ── сегментация базы ───────────────────────────────────────────────────────
+def distinct_tags() -> list[str]:
+    """Все теги из базы. В поле tags может быть несколько через запятую."""
+    seen: dict[str, int] = {}
+    for row in q("SELECT tags FROM recipients WHERE tags<>''"):
+        for part in str(row["tags"]).replace(";", ",").split(","):
+            tag = part.strip()
+            if tag:
+                seen[tag] = seen.get(tag, 0) + 1
+    return [f"{tag} ({count})" for tag, count in sorted(seen.items(), key=lambda x: -x[1])]
+
+
+def tag_names() -> list[str]:
+    return [re.sub(r"\s+\(\d+\)$", "", t) for t in distinct_tags()]
+
+
+def segment(campaign_id: int = 0, tag: str = "", never_written: bool = False,
+            answered_only: bool = False, only_active: bool = True) -> list[str]:
+    """Возвращает username'ы, подходящие под фильтр.
+
+    never_written — кому ещё ни разу не писали;
+    answered_only — кто отвечал;
+    campaign_id — исключить тех, кто уже в этой кампании.
+    """
+    sql = "SELECT r.username FROM recipients r"
+    where: list[str] = []
+    params: list = []
+    if only_active:
+        where.append("r.status='active'")
+    if tag:
+        where.append("(',' || replace(r.tags,' ','') || ',') LIKE ?")
+        params.append(f"%,{tag.replace(' ', '')},%")
+    if never_written:
+        where.append("NOT EXISTS (SELECT 1 FROM sends s WHERE s.recipient=r.username AND s.ok=1)")
+    if answered_only:
+        where.append("r.replied=1")
+    if campaign_id:
+        where.append("r.id NOT IN (SELECT recipient_id FROM campaign_targets WHERE campaign_id=?)")
+        params.append(campaign_id)
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    return [r["username"] for r in q(sql, tuple(params))]
+
+
+def add_segment(campaign_id: int, tag: str = "", never_written: bool = False,
+                answered_only: bool = False) -> int:
+    """Добавляет в кампанию всех, кто подходит под фильтр. Возвращает число."""
+    names = segment(campaign_id, tag, never_written, answered_only)
+    return add_targets(campaign_id, names) if names else 0

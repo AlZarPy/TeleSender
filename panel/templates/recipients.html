@@ -24,7 +24,16 @@
 <h2>Список</h2>
 <form method="get" action="/base" class="row" style="margin-bottom:12px">
   <input name="q" value="{{ query }}" placeholder="поиск по адресу, имени, тегам">
+  {% if tags %}
+  <label style="flex:0 1 200px">тег
+    <select name="tag">
+      <option value="">— все —</option>
+      {% for t in tags %}<option value="{{ t }}" {{ 'selected' if t == tag }}>{{ t }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
   <button class="ghost" type="submit">Найти</button>
+  {% if tag or query %}<a class="btn ghost" href="/base" style="flex:0 1 auto">Сбросить</a>{% endif %}
 </form>
 
 <div class="tablewrap">
@@ -32,7 +41,15 @@
   <tr><th>получатель</th><th>имя</th><th>теги</th><th>статус</th><th></th></tr>
   {% for r in recipients %}
   <tr>
-    <td>{{ r.username }}</td><td>{{ r.first_name }}</td><td class="small muted">{{ r.tags }}</td>
+    <td>{{ r.username }}</td><td>{{ r.first_name }}</td>
+    <td>
+      <form method="post" action="/base/tag" style="flex-direction:row;gap:4px;align-items:center">
+        <input type="hidden" name="username" value="{{ r.username }}">
+        <input name="tags" value="{{ r.tags }}" placeholder="клиенты, музыка"
+               style="width:150px;padding:5px 8px;font-size:12px">
+        <button class="ghost small" type="submit" style="padding:5px 8px">ok</button>
+      </form>
+    </td>
     <td>
       {% if r.status == 'blocked' %}<span class="pill bad">в блоке</span>
       {% elif r.replied %}<span class="pill ok">ответил</span>

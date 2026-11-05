@@ -84,6 +84,33 @@
     <button class="ghost" type="submit">Добавить всю базу — {{ base_left }} чел.</button>
   </form>
   {% endif %}
+
+  <h3 style="margin:18px 0 8px;font-family:Georgia,serif;font-size:17px">Или сегментом</h3>
+  <form method="post" action="/campaigns/{{ campaign.id }}/add">
+    <div class="row">
+      {% if tags %}
+      <label>тег
+        <select name="tag">
+          <option value="">— любой —</option>
+          {% for t in tags %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <label>кому ещё не писали
+        <select name="never_written"><option value="0">не важно</option>
+        <option value="1">да, только новым ({{ seg_never }})</option></select>
+      </label>
+      <label>кто отвечал
+        <select name="answered_only"><option value="0">не важно</option>
+        <option value="1">да, только ответившим ({{ seg_replied }})</option></select>
+      </label>
+    </div>
+    <button type="submit">Добавить по фильтру</button>
+  </form>
+  <p class="muted small" style="margin:0">
+    Тег задаётся при импорте базы. «Только новым» отсекает тех, кому уже доставляли
+    хоть раз — это защита от повторных сообщений.
+  </p>
 </div>
 
 <h2>Получатели ({{ targets|length }})</h2>
