@@ -30,7 +30,10 @@ SEGS = WORK / "segments"
 CHROME = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
 EDGE = Path(r"C:\Users\User\AppData\Local\hermes\installs\6b17de8c14938a10\environments"
             r"\7cbb0f53505049e891e31a484408fbc1\venv\Scripts\edge-tts.exe")
-VOICE = "en-US-AndrewMultilingualNeural"
+# русский голос: native ru-RU, чуть медленнее и ниже — «характер», а не диктор
+VOICE = "ru-RU-DmitryNeural"
+RATE = "+4%"
+PITCH = "-6Hz"
 W, H, FPS = 1920, 1080, 30
 FLOW_FRAMES, FLOW_FPS = 150, 15
 
@@ -203,7 +206,7 @@ def render_voice() -> None:
     AUDIO.mkdir(parents=True, exist_ok=True)
     for ch in CHAPTERS:
         target = AUDIO / f"{ch['key']}.mp3"
-        subprocess.run([str(EDGE), "--voice", VOICE, "--rate=+4%", "--pitch=-1Hz",
+        subprocess.run([str(EDGE), "--voice", VOICE, f"--rate={RATE}", f"--pitch={PITCH}",
                         "--text", ch["voice"], "--write-media", str(target)],
                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"озвучка: {ch['key']} — {ffprobe_duration(target):.1f} с")
@@ -234,7 +237,7 @@ def build_segments() -> list[Path]:
                    "-i", str(voice), "-filter_complex",
                    f"[0:v]fps={FPS},scale={W}:{H},"
                    f"tpad=stop_mode=clone:stop_duration={target:.2f},format=yuv420p[v];"
-                   f"[1:a]adelay=450|450,apad=pad_dur={target:.2f}[a]",
+                   f"[1:a]adelay=450|450,apad=pad_dur={target:.2f},loudnorm=I=-16:TP=-1.5:LRA=11[a]",
                    "-map", "[v]", "-map", "[a]", "-t", f"{target:.2f}",
                    "-c:v", "libx264", "-preset", "medium", "-crf", "20",
                    "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", str(seg)]
@@ -246,7 +249,7 @@ def build_segments() -> list[Path]:
                    "-filter_complex",
                    f"[0:v]scale={W}:{H},fps={FPS},"
                    f"fade=t=in:st=0:d=0.35,fade=t=out:st={fade_out:.2f}:d=0.4,format=yuv420p[v];"
-                   f"[1:a]adelay=450|450,apad=pad_dur={dur:.2f}[a]",
+                   f"[1:a]adelay=450|450,apad=pad_dur={dur:.2f},loudnorm=I=-16:TP=-1.5:LRA=11[a]",
                    "-map", "[v]", "-map", "[a]", "-t", f"{dur:.2f}",
                    "-c:v", "libx264", "-preset", "medium", "-crf", "20",
                    "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", str(seg)]
@@ -268,7 +271,11 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", choices=["slides", "flow", "voice", "build"], default=None)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--voice", default=None, help="голос edge-tts (по умолчанию ru-RU-DmitryNeural)")
     args = ap.parse_args()
+    global VOICE
+    if args.voice:
+        VOICE = args.voice
 
     for folder in (WORK, SLIDES_DIR, FRAMES, AUDIO, SEGS):
         folder.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,25 @@
+# Запуск панели и воркера: docker compose up -d
+# Всё состояние — в ./data. Туда кладём config.txt и .env, там же появятся сессии и база.
+
+services:
+  panel:
+    build: .
+    container_name: pochtamt-panel
+    restart: unless-stopped
+    env_file: ./data/.env
+    ports:
+      - "127.0.0.1:8765:8765"   # наружу только через nginx/туннель, не напрямую
+    volumes:
+      - ./data:/data
+    command: ["python", "-m", "panel.app"]
+
+  worker:
+    build: .
+    container_name: pochtamt-worker
+    restart: unless-stopped
+    env_file: ./data/.env
+    volumes:
+      - ./data:/data
+    command: ["python", "-m", "panel.worker"]
+    depends_on:
+      - panel

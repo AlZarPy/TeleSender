@@ -1,0 +1,20 @@
+[Unit]
+Description=Pochtamt worker (sending queue)
+After=network-online.target pochtamt-panel.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=senderx
+WorkingDirectory=/opt/senderx
+EnvironmentFile=/opt/senderx/.env
+Environment=SENDERX_CONFIG=/opt/senderx/config.txt
+Environment=SENDERX_DB=/opt/senderx/panel.db
+ExecStart=/opt/senderx/.venv/bin/python -m panel.worker
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

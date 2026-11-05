@@ -15,7 +15,10 @@ import sqlite3
 import time
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "panel.db"
+import os
+
+# путь к базе можно вынести наружу (Docker, systemd): по умолчанию рядом с проектом
+DB_PATH = Path(os.environ.get("SENDERX_DB") or (Path(__file__).resolve().parent.parent / "panel.db"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
