@@ -17,7 +17,7 @@
 <h2>Аккаунты</h2>
 <div class="tablewrap">
 <table>
-  <tr><th>аккаунт</th><th>статус</th><th>сегодня</th><th>квота</th><th>осталось</th><th>прокси</th></tr>
+  <tr><th>аккаунт</th><th>статус</th><th>здоровье</th><th>сегодня</th><th>квота</th><th>осталось</th><th>прокси</th></tr>
   {% for a in accounts %}
   <tr>
     <td>{{ a.session_name }}</td>
@@ -28,13 +28,15 @@
       {% elif a.warmup_day and a.warmup_day <= a.warmup_days %}<span class="pill pending">прогрев, день {{ a.warmup_day }}</span>
       {% else %}<span class="pill ok">готов</span>{% endif %}
     </td>
+    <td><span class="pill {{ a.health.level }}" title="{% for lvl, txt in a.health.reasons %}{{ txt }}{% if not loop.last %}; {% endif %}{% endfor %}">
+      {{ a.health.score }} · {{ a.health.label }}</span></td>
     <td>{{ a.sent_today }}</td>
     <td>{{ a.effective_limit }}{% if a.effective_limit != a.daily_limit %} <span class="muted small">из {{ a.daily_limit }}</span>{% endif %}</td>
     <td>{{ a.left_today }}</td>
     <td class="small muted">{{ a.proxy.split('@')[-1] if a.proxy else 'напрямую' }}</td>
   </tr>
   {% endfor %}
-  {% if not accounts %}<tr><td colspan="6" class="muted">нет аккаунтов в config.txt</td></tr>{% endif %}
+  {% if not accounts %}<tr><td colspan="7" class="muted">нет аккаунтов в config.txt</td></tr>{% endif %}
 </table>
 </div>
 

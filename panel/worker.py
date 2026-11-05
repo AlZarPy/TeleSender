@@ -27,9 +27,25 @@ from telethon import TelegramClient
 from config_loader import load_config_from_txt
 from io_utils import force_utf8
 from proxy_config import describe, parse_proxy
-from sender import FloodDetected, send_one
+from sender import FloodDetected, is_transient, send_one
+
+ROOT = Path(__file__).resolve().parent.parent
 
 from panel import brand, db, message, notify, report, replies, warmup, watchdog
+
+
+def resolve_attachment(value: str) -> str | None:
+    """Вложение: URL отдаём как есть, локальный путь ищем рядом с проектом и в data."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    if value.startswith(("http://", "https://")):
+        return value
+    candidates = [Path(value), Path.cwd() / value, ROOT / value, ROOT / "media" / value]
+    for path in candidates:
+        if path.exists():
+            return str(path)
+    return value  # пусть Telethon скажет, что файла нет
 
 
 def log(message: str) -> None:
@@ -59,6 +75,16 @@ class Pool:
         self.me_ids[name] = getattr(me, "id", None)
         log(f"{name}: подключён как @{getattr(me, 'username', '?')} ({describe(proxy)})")
         return client
+
+    async def reset(self, name: str) -> None:
+        """Сбрасывает клиент аккаунта — нужно после сетевого сбоя."""
+        client = self.clients.pop(name, None)
+        if client is not None:
+            try:
+                await client.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+        self.me_ids.pop(name, None)
 
     async def close_all(self) -> None:
         for name, client in list(self.clients.items()):
@@ -101,6 +127,32 @@ def in_window(campaign: dict) -> bool:
     return start <= hour < end if start <= end else (hour >= start or hour < end)
 
 
+RETRY_DELAYS = (5, 15, 45)
+
+
+async def send_with_retry(pool: Pool, name: str, target: dict, caller) -> object:
+    """Повторяет отправку при временных сбоях: сеть, таймаут, ошибка сервера.
+
+    caller(client) делает саму отправку. Флуд и логические отказы не повторяем.
+    """
+    last: BaseException | None = None
+    for attempt, delay in enumerate((0, *RETRY_DELAYS), start=1):
+        if delay:
+            log(f"↻ @{target['username']}: повтор {attempt - 1} через {delay} с")
+            await asyncio.sleep(delay)
+            await pool.reset(name)
+        client = await pool.get(name)
+        try:
+            return await caller(client)
+        except FloodDetected:
+            raise
+        except BaseException as exc:  # noqa: BLE001
+            if not is_transient(exc):
+                raise
+            last = exc
+    raise last if last else RuntimeError("send failed")
+
+
 async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     """Одна отправка. Возвращает: sent | skipped | retry | wait | done."""
     target = db.next_target(campaign["id"])
@@ -140,9 +192,14 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
         return message.render(template_body, intro, sender_name, his_name)
 
     me_id = None if campaign["allow_self"] else pool.me_ids.get(name)
+    attachment = resolve_attachment(campaign.get("attachment") or "")
+
+    async def _do(client):
+        return await send_one(client, target["username"], sender_name, template_body, me_id,
+                              template_fn=compose, attachment=attachment)
+
     try:
-        result = await send_one(client, target["username"], sender_name,
-                                template_body, me_id, template_fn=compose)
+        result = await send_with_retry(pool, name, target, _do)
     except FloodDetected as exc:
         until = time.time() + exc.seconds
         db.set_account(name, paused_until=until)

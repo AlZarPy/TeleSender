@@ -57,6 +57,11 @@
 <div class="card note-paper"><pre style="white-space:pre-wrap;margin:0">{{ campaign.intro }}</pre></div>
 {% endif %}
 
+{% if campaign.attachment %}
+<h2>Вложение</h2>
+<div class="card note-paper"><pre style="white-space:pre-wrap;margin:0">📎 {{ campaign.attachment }}</pre></div>
+{% endif %}
+
 <h2>Текст сообщения</h2>
 <div class="card note-paper"><pre style="white-space:pre-wrap;margin:0">{{ campaign.template }}</pre></div>
 

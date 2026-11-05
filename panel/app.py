@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from config_loader import ConfigError, load_config_from_txt
 from csv_loader import normalise
 
-from panel import brand, db, message, watchdog
+from panel import brand, db, health, message, watchdog
 
 PANEL_NAME = brand.PANEL
 COOKIE = "pochtamt"
@@ -204,7 +204,7 @@ def dashboard(request: Request, user: str = Depends(current_user)):
     totals = {k: ((totals_row[k] if totals_row else 0) or 0) for k in ("ok", "failed", "total")}
     recent = [dict(r) for r in db.q("SELECT * FROM sends ORDER BY id DESC LIMIT 15")]
     events = [dict(r) for r in db.q("SELECT * FROM events ORDER BY id DESC LIMIT 10")]
-    return render(request, "dashboard.html", accounts=accounts, campaigns=campaigns,
+    return render(request, "dashboard.html", accounts=health.with_health(accounts), campaigns=campaigns,
                   totals=totals, recent=recent, events=events)
 
 
@@ -226,6 +226,7 @@ def campaign_create(request: Request, name: str = Form(...), template: str = For
                     hour_limit: int = Form(10), window_start: int = Form(9),
                     window_end: int = Form(21), allow_self: int = Form(0),
                     allow_repeat: int = Form(0), scheduled_at: str = Form(""),
+                    attachment: str = Form(""),
                     user: str = Depends(current_user)):
     names: list[str] = []
     for raw in recipients.replace(",", "\n").splitlines():
@@ -244,7 +245,7 @@ def campaign_create(request: Request, name: str = Form(...), template: str = For
                              hour_limit=max(1, hour_limit),
                              window_start=window_start, window_end=window_end,
                              allow_self=bool(allow_self), allow_repeat=bool(allow_repeat),
-                             scheduled_at=when)
+                             scheduled_at=when, attachment=attachment.strip())
     db.event("campaign_created", "", f"кампания «{name}»: {len(names)} получателей")
     return RedirectResponse(f"/campaigns/{cid}", status_code=303)
 
@@ -442,7 +443,7 @@ def logs_export(user: str = Depends(current_user)):
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, user: str = Depends(current_user)):
-    accounts = db.accounts_with_config(config_accounts())
+    accounts = health.with_health(db.accounts_with_config(config_accounts()))
     return render(request, "settings.html", accounts=accounts,
                   replied=db.replied(limit=10), today=time.strftime("%Y-%m-%d"),
                   thresholds=watchdog.describe_thresholds())

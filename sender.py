@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from telethon.errors import (
@@ -46,8 +47,20 @@ def render(template: str, my_name: str, his_name: str) -> str:
     return template.replace(PLACEHOLDER_ME, my_name).replace(PLACEHOLDER_HIM, name)
 
 
+TRANSIENT_ERRORS = (ConnectionError, TimeoutError, OSError, asyncio.IncompleteReadError)
+
+
+def is_transient(exc: BaseException) -> bool:
+    """Временный ли сбой: сеть, таймаут, сервер Telegram. Такие имеет смысл повторить."""
+    if isinstance(exc, TRANSIENT_ERRORS):
+        return True
+    name = type(exc).__name__.lower()
+    return any(word in name for word in ("timeout", "internalserver", "servererror",
+                                         "connection", "network"))
+
+
 async def send_one(client, username: str, my_name: str, template: str, me_id: int | None = None,
-                   template_fn=None) -> SendResult:
+                   template_fn=None, attachment: str | None = None) -> SendResult:
     """template_fn(his_name) -> текст: так панель подставляет свои варианты и вступление."""
     try:
         user = await client.get_entity(username)
@@ -61,6 +74,24 @@ async def send_one(client, username: str, my_name: str, template: str, me_id: in
 
     his_name = getattr(user, "first_name", "") or ""
     text = template_fn(his_name) if template_fn else render(template, my_name, his_name)
+
+    if attachment:
+        if len(text) > 1024:
+            return SendResult(username, False, "caption_long")
+        try:
+            await client.send_file(user, attachment, caption=text)
+        except FloodWaitError as exc:
+            raise FloodDetected(exc.seconds, username) from exc
+        except UserPrivacyRestrictedError:
+            return SendResult(username, False, "privacy")
+        except ChatWriteForbiddenError:
+            return SendResult(username, False, "forbidden")
+        except FileNotFoundError:
+            return SendResult(username, False, "media_missing")
+        except Exception as exc:  # noqa: BLE001
+            return SendResult(username, False, f"error:{type(exc).__name__}")
+        return SendResult(username, True)
+
     try:
         await client.send_message(user, text)
     except FloodWaitError as exc:

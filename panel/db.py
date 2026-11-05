@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     window_end   INTEGER NOT NULL DEFAULT 21,
     allow_self   INTEGER NOT NULL DEFAULT 0,
     allow_repeat INTEGER NOT NULL DEFAULT 0,       -- разрешить писать тем, кому уже писали
+    attachment   TEXT NOT NULL DEFAULT '',         -- путь или URL вложения (jpg, pdf, mp4)
     scheduled_at TEXT NOT NULL DEFAULT '',         -- не стартовать раньше этого времени
     attempts     INTEGER NOT NULL DEFAULT 0,       -- сколько попыток сделано
     fail_streak  INTEGER NOT NULL DEFAULT 0,       -- ошибок подряд
@@ -141,6 +142,7 @@ def _migrate() -> None:
             "intro": "TEXT NOT NULL DEFAULT ''",
             "hour_limit": "INTEGER NOT NULL DEFAULT 10",
             "allow_repeat": "INTEGER NOT NULL DEFAULT 0",
+            "attachment": "TEXT NOT NULL DEFAULT ''",
             "scheduled_at": "TEXT NOT NULL DEFAULT ''",
             "attempts": "INTEGER NOT NULL DEFAULT 0",
             "fail_streak": "INTEGER NOT NULL DEFAULT 0",
@@ -294,14 +296,16 @@ def create_campaign(name: str, template: str, recipients: list[str], *,
                     intro: str = "", min_delay: int = 25, max_delay: int = 70,
                     hour_limit: int = 10, window_start: int = 9, window_end: int = 21,
                     allow_self: bool = False, allow_repeat: bool = False,
-                    scheduled_at: str = "") -> int:
+                    scheduled_at: str = "", attachment: str = "") -> int:
     with connect() as conn:
         cur = conn.execute(
             """INSERT INTO campaigns(name, template, intro, min_delay, max_delay, hour_limit,
-                                     window_start, window_end, allow_self, allow_repeat, scheduled_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                                     window_start, window_end, allow_self, allow_repeat,
+                                     scheduled_at, attachment)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (name, template, intro, min_delay, max_delay, hour_limit,
-             window_start, window_end, int(allow_self), int(allow_repeat), scheduled_at),
+             window_start, window_end, int(allow_self), int(allow_repeat),
+             scheduled_at, attachment),
         )
         cid = cur.lastrowid or 0
         for username in recipients:

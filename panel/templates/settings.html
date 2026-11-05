@@ -10,6 +10,7 @@
   <div class="row" style="align-items:center">
     <div>
       <strong>{{ a.session_name }}</strong>
+      <span class="pill {{ a.health.level }}" style="margin-left:8px">{{ a.health.score }} · {{ a.health.label }}</span>
       <div class="small muted">
         {{ a.my_name }} · сессия: {{ 'есть' if a.session_exists else 'нет' }} ·
         прокси: {{ a.proxy.split('@')[-1] if a.proxy else 'напрямую' }} ·
@@ -33,6 +34,9 @@
     </label>
     <button type="submit">Сохранить</button>
   </form>
+  <ul class="checks" style="margin:8px 0 0">
+    {% for lvl, txt in a.health.reasons %}<li class="{{ lvl }}"><span>{{ '✓' if lvl == 'ok' else ('!' if lvl == 'warn' else '✕') }}</span> {{ txt }}</li>{% endfor %}
+  </ul>
   {% if a.warmup_start %}
   <p class="small muted" style="margin:8px 0 0">
     Прогрев ограничивает суточную квоту: 15 → 15 → 20 → 20 → 25 → 30 → 30 по дням,
