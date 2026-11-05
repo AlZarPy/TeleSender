@@ -517,3 +517,48 @@ def import_sent_jsonl(path: str = "sent.jsonl") -> int:
     if added:
         event("history_import", "cli", f"подтянуто отправок из sent.jsonl: {added}")
     return added
+
+
+# ── архив и очистка журнала ────────────────────────────────────────────────
+def export_csv(sql: str, params: tuple, path, header: bool = True) -> int:
+    """Выгружает результат запроса в CSV. Возвращает число строк."""
+    import csv
+    rows = q(sql, params)
+    if not rows:
+        return 0
+    with open(path, "w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.writer(fh, delimiter=";")
+        if header:
+            writer.writerow(rows[0].keys())
+        writer.writerows([tuple(r) for r in rows])
+    return len(rows)
+
+
+def archive_journal(folder) -> list:
+    """Перед очисткой складывает квитанции и события в CSV."""
+    from datetime import datetime
+    from pathlib import Path as _Path
+
+    folder = _Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    made = []
+    sends = export_csv("SELECT * FROM sends ORDER BY id", (), folder / f"sends-{stamp}.csv")
+    events = export_csv("SELECT * FROM events ORDER BY id", (), folder / f"events-{stamp}.csv")
+    if sends:
+        made.append(folder / f"sends-{stamp}.csv")
+    if events:
+        made.append(folder / f"events-{stamp}.csv")
+    return made
+
+
+def clear_events(keep_sends: bool = True) -> tuple[int, int]:
+    """Чистит журнал событий (и по желанию квитанции). Возвращает (события, квитанции)."""
+    events = q1("SELECT COUNT(*) c FROM events")["c"]
+    execute("DELETE FROM events")
+    sends = 0
+    if not keep_sends:
+        sends = q1("SELECT COUNT(*) c FROM sends")["c"]
+        execute("DELETE FROM sends")
+    event("journal_cleared", "", f"журнал очищен: событий {events}, квитанций {sends}")
+    return int(events), int(sends)

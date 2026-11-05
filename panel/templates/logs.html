@@ -2,6 +2,15 @@
 {% block title %}Журнал{% endblock %}
 {% block content %}
 
+<div class="row" style="align-items:center;margin-bottom:14px">
+  <a class="btn ghost" href="/logs/export.csv">Скачать квитанции в CSV</a>
+  <form method="post" action="/logs/clear" style="flex:1 1 220px"
+        onsubmit="return confirm('Очистить журнал событий? Квитанции останутся, всё уйдёт в архив CSV.')">
+    <input type="hidden" name="keep_sends" value="1">
+    <button class="ghost" type="submit">Очистить журнал событий</button>
+  </form>
+</div>
+
 <h2>Отправки</h2>
 <div class="tablewrap">
 <table>
@@ -18,6 +27,11 @@
 </div>
 
 <h2>События</h2>
+<p class="muted small" style="margin:-6px 0 10px">
+  Квитанции хранятся постоянно в базе панели. Перед очисткой журнал автоматически
+  складывается в CSV — файлы в папке <code>journal/</code>.
+  {% if archives %}Последние архивы: {% for a in archives %}{{ a.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+</p>
 <div class="tablewrap">
 <table>
   <tr><th>время</th><th>событие</th><th>аккаунт</th><th>детали</th></tr>

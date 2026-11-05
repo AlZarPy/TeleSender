@@ -30,3 +30,7 @@ presentation/
 
 # данные docker-развёртывания
 data/
+
+# архивы журнала
+journal/
+panel.db.bak-*

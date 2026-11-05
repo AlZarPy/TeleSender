@@ -18,7 +18,7 @@ import urllib.parse
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -357,7 +357,44 @@ def base_block(username: str = Form(...), blocked: int = Form(1),
 def logs_page(request: Request, user: str = Depends(current_user)):
     sends = [dict(r) for r in db.q("SELECT * FROM sends ORDER BY id DESC LIMIT 300")]
     events = [dict(r) for r in db.q("SELECT * FROM events ORDER BY id DESC LIMIT 100")]
-    return render(request, "logs.html", sends=sends, events=events)
+    archives = sorted((BASE.parent / "journal").glob("*.csv"))[-5:] if (BASE.parent / "journal").exists() else []
+    return render(request, "logs.html", sends=sends, events=events, archives=archives)
+
+
+@app.on_event("startup")
+def _import_cli_history() -> None:
+    """Отправки через main.py кладём в журнал панели при старте, а не только в воркере."""
+    try:
+        db.init()
+        imported = db.import_sent_jsonl()
+        if imported:
+            db.event("history_import", "cli", f"подтянуто отправок из sent.jsonl: {imported}")
+    except Exception:  # noqa: BLE001 — панель должна подняться даже без файла
+        pass
+
+
+@app.post("/logs/clear")
+def logs_clear(keep_sends: int = Form(1), user: str = Depends(current_user)):
+    """Перед очисткой архивируем в CSV — история не теряется, просто уезжает в файл."""
+    made = db.archive_journal(BASE.parent / "journal")
+    events, sends = db.clear_events(keep_sends=bool(keep_sends))
+    db.event("journal_cleared", "", f"событий {events}, квитанций {sends}, архив: {len(made)} файл(ов)")
+    return RedirectResponse("/logs", status_code=303)
+
+
+@app.get("/logs/export.csv")
+def logs_export(user: str = Depends(current_user)):
+    import csv
+    import io
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, delimiter=";")
+    writer.writerow(["время", "кампания", "аккаунт", "получатель", "результат", "причина"])
+    for row in db.q("SELECT * FROM sends ORDER BY id"):
+        writer.writerow([row["ts"], row["campaign_id"], row["account"], row["recipient"],
+                         "доставлено" if row["ok"] else "ошибка", row["reason"]])
+    return Response("\ufeff" + buffer.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="pochtamt-sends.csv"'})
 
 
 @app.get("/settings", response_class=HTMLResponse)
