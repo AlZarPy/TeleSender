@@ -48,6 +48,7 @@ templates.env.globals.update(
     stamp=brand.stamp,
     section_of=brand.section_of,
     crumbs=brand.crumbs,
+    plural=brand.plural,
 )
 
 

@@ -21,19 +21,19 @@
 <div class="grid" style="margin-bottom:16px">
   <div class="card"><div class="num">{{ stats.pending }}</div><div class="lbl">в очереди</div></div>
   <div class="card"><div class="num">{{ stats.sent }}</div><div class="lbl">отправлено</div></div>
-  <div class="card"><div class="num">{{ stats.failed }}</div><div class="lbl">ошибок</div></div>
+  <div class="card"><div class="num">{{ stats.failed }}</div><div class="lbl">{{ plural(stats.failed, 'ошибка', 'ошибки', 'ошибок') }}</div></div>
   <div class="card"><div class="num">{{ stats.total }}</div><div class="lbl">всего получателей</div></div>
 </div>
 
 <div class="row" style="margin-bottom:18px">
   {% if campaign.status in ('draft','paused') %}
-  <form method="post" action="/campaigns/{{ campaign.id }}/start"><button type="submit">▶ Запустить</button></form>
+  <form method="post" action="/campaigns/{{ campaign.id }}/start"><button type="submit">Запустить</button></form>
   {% endif %}
   {% if campaign.status == 'running' %}
-  <form method="post" action="/campaigns/{{ campaign.id }}/pause"><button class="ghost" type="submit">⏸ Пауза</button></form>
+  <form method="post" action="/campaigns/{{ campaign.id }}/pause"><button class="ghost" type="submit">Пауза</button></form>
   {% endif %}
-  <form method="post" action="/campaigns/{{ campaign.id }}/stop"><button class="ghost" type="submit">⏹ Остановить</button></form>
-  <a class="btn ghost" href="/campaigns/{{ campaign.id }}/preview">👁 Предпросмотр текста</a>
+  <form method="post" action="/campaigns/{{ campaign.id }}/stop"><button class="ghost" type="submit">Остановить</button></form>
+  <a class="btn ghost" href="/campaigns/{{ campaign.id }}/preview">Предпросмотр текста</a>
   <form method="post" action="/campaigns/{{ campaign.id }}/delete"
         onsubmit="return confirm('Удалить кампанию и её список получателей?')">
     <button class="danger" type="submit">Удалить</button></form>

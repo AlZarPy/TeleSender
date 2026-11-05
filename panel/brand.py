@@ -98,3 +98,16 @@ def crumbs(path: str) -> list[str]:
     if len(pieces) >= 2 and pieces[1].isdigit():
         parts.append(f"#{pieces[1]}")
     return parts
+
+
+def plural(n, one: str, few: str, many: str) -> str:
+    """Русское склонение по числу: 1 ошибка, 2 ошибки, 5 ошибок."""
+    try:
+        value = abs(int(n))
+    except (TypeError, ValueError):
+        return many
+    if value % 10 == 1 and value % 100 != 11:
+        return one
+    if 2 <= value % 10 <= 4 and not 12 <= value % 100 <= 14:
+        return few
+    return many
