@@ -32,7 +32,31 @@ COOKIE = "pochtamt"
 SESSION_TTL = 30 * 24 * 3600
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
+ROOT = Path(__file__).resolve().parent.parent
+
 app = FastAPI(title=f"{brand.APP} · {brand.PANEL}", docs_url=None, redoc_url=None)
+
+
+@app.middleware("http")
+async def no_stale_pages(request: Request, call_next):
+    """HTML не кэшируем: после обновления панели видно свежую страницу, а не старую."""
+    response = await call_next(request)
+    if response.headers.get("content-type", "").startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+    return response
+
+
+@app.get("/healthz", response_class=JSONResponse)
+def healthz():
+    """Быстрая проверка здоровья: версия, база, воркер."""
+    alive, worker = db.worker_alive()
+    funnel = db.global_funnel()
+    return {
+        "ok": True,
+        "build": BUILD if "BUILD" in globals() else "dev",
+        "worker": {"alive": alive, "state": worker.get("state") if worker else None},
+        "db": funnel,
+    }
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE / "templates"))
@@ -154,6 +178,21 @@ def lan_ip() -> str:
         return "127.0.0.1"
 
 
+def build_id() -> str:
+    """Короткий хеш сборки — чтобы в подвале было видно, свежая ли страница."""
+    try:
+        import subprocess
+
+        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT,
+                             capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() or "dev"
+    except Exception:
+        return "dev"
+
+
+BUILD = build_id()
+
+
 def render(request: Request, name: str, **ctx):
     alive, worker = db.worker_alive()
     base_ctx = {
@@ -164,6 +203,7 @@ def render(request: Request, name: str, **ctx):
         "stamp_text": brand.stamp(alive),
         "lan_ip": lan_ip(),
         "port": os.environ.get("PANEL_PORT", "8765"),
+        "build": BUILD,
     }
     return templates.TemplateResponse(request, name, {**base_ctx, **ctx})
 
