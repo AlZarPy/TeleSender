@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from config_loader import ConfigError, load_config_from_txt
 from csv_loader import normalise
 
-from panel import brand, db, health, message, watchdog
+from panel import brand, db, health, message, synonyms, watchdog
 
 PANEL_NAME = brand.PANEL
 COOKIE = "pochtamt"
@@ -294,7 +294,11 @@ def campaign_text(cid: int, template: str = Form(""), intro: str = Form(""),
     """Сохраняет текст кампании; action=prepare — ещё и превращает слэши в варианты."""
     if db.q1("SELECT id FROM campaigns WHERE id=?", (cid,)) is None:
         raise HTTPException(404)
-    if action == "prepare":
+    if action == "synonyms":
+        body = synonyms.enrich(template)
+        head = synonyms.enrich(intro)
+        total = body["variants"] if body["changed"] else head["variants"]
+    elif action == "prepare":
         body = message.prepare(template)
         head = message.prepare(intro)
         total = body["variants"] if body["groups"] else head["variants"]
@@ -302,10 +306,19 @@ def campaign_text(cid: int, template: str = Form(""), intro: str = Form(""),
         body, head, total = {"text": template}, {"text": intro}, 1
     db.execute("UPDATE campaigns SET template=?, intro=? WHERE id=?",
                (body["text"], head["text"], cid))
+    if action == "synonyms":
+        db.event("text_synonyms", "", f"кампания #{cid}: синонимов {body.get('replaced', 0)}, вариантов {total}")
+        return RedirectResponse(f"/campaigns/{cid}?prepared={total}", status_code=303)
     if action == "prepare":
         db.event("text_prepared", "", f"кампания #{cid}: вариантов {total}")
         return RedirectResponse(f"/campaigns/{cid}?prepared={total}", status_code=303)
     return RedirectResponse(f"/campaigns/{cid}?saved=1", status_code=303)
+
+
+@app.post("/tools/enrich")
+def tools_enrich(text: str = Form(...), user: str = Depends(current_user)):
+    """Добавляет автоматические синонимы: стартует/начинается/открывается."""
+    return JSONResponse(synonyms.enrich(text))
 
 
 @app.post("/tools/prepare")

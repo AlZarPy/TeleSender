@@ -54,12 +54,28 @@
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <button class="ghost" type="button" onclick="prepareText('template')">Подготовить текст</button>
       <button class="ghost" type="button" onclick="prepareText('intro')">Подготовить вступление</button>
+      <button class="ghost" type="button" onclick="enrichText('template')">Добавить синонимы</button>
       <span id="prepInfo" class="small muted"></span>
     </div>
 
     <button type="submit">Создать кампанию</button>
 
 <script>
+async function enrichText(field) {
+  const box = document.querySelector('[name=' + field + ']');
+  const info = document.getElementById('prepInfo');
+  if (!box) return;
+  const body = new FormData();
+  body.append('text', box.value);
+  const res = await fetch('/tools/enrich', { method: 'POST', body: body });
+  if (!res.ok) { info.textContent = 'не удалось добавить синонимы'; return; }
+  const data = await res.json();
+  box.value = data.text;
+  info.textContent = data.replaced
+    ? 'синонимов расставлено: ' + data.replaced + ' — вариантов ' + data.variants
+    : 'синонимов для замены не нашёл';
+}
+
 async function prepareText(field) {
   const box = document.querySelector('[name=' + field + ']');
   const info = document.getElementById('prepInfo');

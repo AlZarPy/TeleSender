@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("SENDERX_DB", str(Path(os.environ.get("SENDERX_DATA", ROOT)) / "panel.db"))
 os.environ.setdefault("SENDERX_CONFIG", str(Path(os.environ.get("SENDERX_DATA", ROOT)) / "config.txt"))
 
-from panel import db, health, message, report  # noqa: E402
+from panel import db, health, message, report, synonyms  # noqa: E402
 
 
 def _accounts() -> list[dict]:
@@ -142,6 +142,16 @@ def cmd_prepare_text(args) -> int:
     return 0
 
 
+def cmd_enrich(args) -> int:
+    db.init()
+    row = _campaign(args.cid)
+    body = synonyms.enrich(row["template"])
+    db.execute("UPDATE campaigns SET template=? WHERE id=?", (body["text"], args.cid))
+    print(f"«{row['name']}»: синонимов {body['replaced']}, вариантов {body['variants']}")
+    print(body["text"][:300])
+    return 0
+
+
 def cmd_preview(args) -> int:
     db.init()
     row = _campaign(args.cid)
@@ -167,6 +177,10 @@ def main() -> int:
     sub.add_parser("status").set_defaults(func=cmd_status)
     sub.add_parser("campaigns").set_defaults(func=cmd_campaigns)
     sub.add_parser("report").set_defaults(func=cmd_report)
+    p = sub.add_parser("enrich")
+    p.add_argument("cid", type=int)
+    p.set_defaults(func=cmd_enrich)
+
     p = sub.add_parser("prepare-text")
     p.add_argument("cid", type=int)
     p.set_defaults(func=cmd_prepare_text)

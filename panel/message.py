@@ -146,8 +146,19 @@ def prepare(text: str) -> dict:
         parts = [part for part in parts if part]
         if len(parts) < 2:
             return raw
+
+        # последний вариант не должен съедать хвост предложения:
+        # «Стартует/начинается новый поток» → {Стартует|начинается} новый поток
+        tail = ""
+        if len(parts[-1].split()) > 1:
+            after = working[match.end():match.end() + 1]
+            if after and not re.match(r"[.!?,;:)\]}\n\r—–-]", after):
+                words = parts[-1].split()
+                tail = " " + " ".join(words[1:])
+                parts[-1] = words[0]
+
         groups += 1
-        return "{" + "|".join(parts) + "}"
+        return "{" + "|".join(parts) + "}" + tail
 
     working = SLASH_GROUP.sub(convert, working)
     for index, value in enumerate(protected):
