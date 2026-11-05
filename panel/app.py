@@ -264,7 +264,27 @@ def campaign_page(request: Request, cid: int, user: str = Depends(current_user))
         "SELECT * FROM sends WHERE campaign_id=? ORDER BY id DESC LIMIT 50", (cid,))]
     notes = message.lint(campaign["template"], campaign.get("intro") or "")
     return render(request, "campaign.html", campaign=campaign, stats=stats,
-                  targets=targets, sends=sends, notes=notes, worst=message.worst_level(notes))
+                  targets=targets, sends=sends, notes=notes, worst=message.worst_level(notes),
+                  base_left=db.base_not_in_campaign(cid))
+
+
+@app.post("/campaigns/{cid}/add")
+def campaign_add_recipients(cid: int, usernames: str = Form(""), all_base: int = Form(0),
+                            user: str = Depends(current_user)):
+    """Добавить в кампанию людей из общей базы: список вручную или всю базу разом."""
+    row = db.q1("SELECT * FROM campaigns WHERE id=?", (cid,))
+    if row is None:
+        raise HTTPException(404)
+    if all_base:
+        added = db.add_targets(cid)
+    else:
+        names = [normalise(line) for line in usernames.replace(",", "\n").splitlines()]
+        names = [n for n in names if n]
+        if not names:
+            return RedirectResponse(f"/campaigns/{cid}", status_code=303)
+        db.upsert_recipients([(n, "", "") for n in names])
+        added = db.add_targets(cid, names)
+    return RedirectResponse(f"/campaigns/{cid}?added={added}", status_code=303)
 
 
 @app.get("/campaigns/{cid}/preview", response_class=HTMLResponse)

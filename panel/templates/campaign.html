@@ -60,6 +60,32 @@
 <h2>Текст сообщения</h2>
 <div class="card note-paper"><pre style="white-space:pre-wrap;margin:0">{{ campaign.template }}</pre></div>
 
+<h2>Добавить получателей из базы</h2>
+<div class="card">
+  {% if request.query_params.get('added') %}
+    <p class="pill ok" style="margin:0 0 10px">добавлено в кампанию: {{ request.query_params.get('added') }}</p>
+  {% endif %}
+  <p class="muted small" style="margin:0 0 10px">
+    «Получатели» — это общая база, кампания берёт из неё свою выборку.
+    Сейчас в базе <b>{{ base_left }}</b> человек, которых в этой кампании ещё нет.
+  </p>
+  <form method="post" action="/campaigns/{{ campaign.id }}/add">
+    <label>вписать вручную — по одному в строке или через запятую
+      <textarea name="usernames" style="min-height:70px" placeholder="@username&#10;t.me/name"></textarea>
+    </label>
+    <div class="row">
+      <button type="submit">Добавить в кампанию</button>
+    </div>
+  </form>
+  {% if base_left %}
+  <form method="post" action="/campaigns/{{ campaign.id }}/add" style="margin-top:8px"
+        onsubmit="return confirm('Добавить всех активных из базы ({{ base_left }})?')">
+    <input type="hidden" name="all_base" value="1">
+    <button class="ghost" type="submit">Добавить всю базу — {{ base_left }} чел.</button>
+  </form>
+  {% endif %}
+</div>
+
 <h2>Получатели ({{ targets|length }})</h2>
 <div class="tablewrap">
 <table>

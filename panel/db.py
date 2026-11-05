@@ -562,3 +562,43 @@ def clear_events(keep_sends: bool = True) -> tuple[int, int]:
         execute("DELETE FROM sends")
     event("journal_cleared", "", f"журнал очищен: событий {events}, квитанций {sends}")
     return int(events), int(sends)
+
+
+# ── состав кампании: добавление из общей базы ──────────────────────────────
+def add_targets(campaign_id: int, usernames: list[str] | None = None,
+                only_active: bool = True) -> int:
+    """Добавляет получателей в кампанию. usernames=None — всех активных из базы.
+
+    Уже добавленных не дублируем (ключ campaign_id+recipient_id).
+    Возвращает число реально добавленных.
+    """
+    where: list[str] = []
+    params: list = []
+    if usernames:
+        marks = ",".join("?" * len(usernames))
+        where.append(f"username IN ({marks})")
+        params.extend(usernames)
+    if only_active:
+        where.append("status='active'")
+    sql = "SELECT id FROM recipients" + (" WHERE " + " AND ".join(where) if where else "")
+
+    added = 0
+    with connect() as conn:
+        for row in conn.execute(sql, tuple(params)).fetchall():
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO campaign_targets(campaign_id, recipient_id) VALUES (?,?)",
+                (campaign_id, row["id"]))
+            added += 1 if cur.rowcount and cur.rowcount > 0 else 0
+        conn.commit()
+    if added:
+        event("campaign_targets_added", "", f"в кампанию #{campaign_id} добавлено получателей: {added}")
+    return added
+
+
+def base_not_in_campaign(campaign_id: int) -> int:
+    """Сколько активных людей из базы ещё не в этой кампании."""
+    row = q1("""SELECT COUNT(*) c FROM recipients r
+                WHERE r.status='active' AND r.id NOT IN
+                      (SELECT recipient_id FROM campaign_targets WHERE campaign_id=?)""",
+             (campaign_id,))
+    return int(row["c"]) if row else 0
