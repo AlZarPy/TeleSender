@@ -36,7 +36,9 @@ app = FastAPI(title=f"{brand.APP} · {brand.PANEL}", docs_url=None, redoc_url=No
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE / "templates"))
+CSS_V = int((BASE / "static" / "style.css").stat().st_mtime)
 templates.env.globals.update(
+    css_v=CSS_V,
     T=brand.T,
     APP=brand.APP,
     PANEL=brand.PANEL,

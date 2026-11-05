@@ -4,14 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ PANEL }}{% endblock %} · {{ PANEL }}, панель {{ APP }}</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ css_v }}">
 </head>
 <body>
 {% set path = request.url.path %}
 <header class="topbar">
-  <a class="brand" href="/" title="{{ APP }} — сервис рассылки, {{ PANEL }} — его панель управления">
+  <a class="brand" href="/" title="{{ APP }} — сервис рассылки">
     <span class="brand-service">{{ APP }}</span>
-    <span class="brand-panel">{{ PANEL }}</span>
   </a>
   <nav>
     <a href="/" class="{{ 'active' if path == '/' else '' }}">Дашборд</a>
@@ -29,7 +28,8 @@
 
 <div class="crumbs">
   {% set chain = crumbs(path) %}
-  {% for item in chain %}{% if loop.last %}<b>{{ item }}</b>{% else %}<span>{{ item }}</span><span class="sep">›</span>{% endif %}{% endfor %}
+  <b class="crumb-panel">{{ chain[0] }}</b>
+  {% for item in chain[1:] %}<span class="sep">›</span><span class="{{ 'crumb-current' if loop.last else '' }}">{{ item }}</span>{% endfor %}
 </div>
 
 <main>

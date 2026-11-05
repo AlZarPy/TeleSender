@@ -1,4 +1,5 @@
 """Рендер страниц панели в статические файлы — чтобы посмотреть тему без входа."""
+import re
 import sys
 from pathlib import Path
 
@@ -85,7 +86,7 @@ CSS = (ROOT / "panel" / "static" / "style.css").read_text(encoding="utf-8")
 for name, ctx in pages.items():
     html = env.get_template(name).render(**ctx)
     # для file:// подставляем стили прямо в страницу, иначе они не подгрузятся
-    html = html.replace('<link rel="stylesheet" href="/static/style.css">',
-                        f"<style>\n{CSS}\n</style>")
+    html = re.sub(r'<link rel="stylesheet" href="/static/style\.css[^"]*">',
+                  f"<style>\n{CSS}\n</style>", html)
     (OUT / name.replace(".html", ".rendered.html")).write_text(html, encoding="utf-8")
     print("готово:", name)

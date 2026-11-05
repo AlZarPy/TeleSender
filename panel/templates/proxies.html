@@ -1,7 +1,6 @@
 {% extends "layout.html" %}
 {% block title %}Прокси{% endblock %}
 {% block content %}
-<h1>Прокси</h1>
 {% set configured = accounts|selectattr('proxy')|list|length %}
 <p class="muted small">
   Место под пул прокси готово: файл <code>proxies.txt</code> рядом с <code>config.txt</code>,

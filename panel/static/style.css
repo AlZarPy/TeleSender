@@ -45,8 +45,8 @@ a:hover{color:var(--ink);border-bottom-color:var(--ink)}
 .brand{display:flex;flex-direction:column;line-height:1.1;text-decoration:none;
   padding-right:16px;border-right:1px solid var(--line);border-bottom:0}
 .brand:hover{text-decoration:none}
-.brand-service{font-size:10px;letter-spacing:.2em;text-transform:uppercase;
-  color:var(--muted);font-weight:700}
+.brand-service{font-family:Georgia,"PT Serif","Times New Roman",serif;
+  font-size:19px;font-weight:700;color:var(--ink);letter-spacing:.01em}
 .brand-panel{font-family:Georgia,"PT Serif","Times New Roman",serif;
   font-size:22px;font-weight:700;color:var(--ink);letter-spacing:.01em}
 .topbar nav{display:flex;flex-wrap:wrap;gap:2px;flex:1;align-items:center}
@@ -73,8 +73,12 @@ a:hover{color:var(--ink);border-bottom-color:var(--ink)}
 .postmark.on{border-color:var(--ok);color:var(--ok)}
 
 /* ── крошки и каркас ───────────────────────────────────────────────────── */
-.crumbs{max-width:1120px;margin:0 auto;padding:10px 18px 0;font-size:12px;color:var(--muted)}
-.crumbs .sep{margin:0 7px;opacity:.6}
+.crumbs{max-width:1120px;margin:0 auto;padding:16px 18px 0;font-size:12px;color:var(--muted)}
+.crumbs .crumb-panel{font-family:Georgia,"PT Serif","Times New Roman",serif;
+  font-size:27px;font-weight:700;color:var(--ink);letter-spacing:.01em;line-height:1.1}
+.crumbs .sep{margin:0 10px;opacity:.5;font-size:19px;vertical-align:2px}
+.crumbs .crumb-current{font-size:12.5px;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--muted);font-weight:600}
 .crumbs b{color:var(--ink);font-weight:600}
 
 main{max-width:1120px;margin:0 auto;padding:14px 18px 60px}
