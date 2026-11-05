@@ -29,7 +29,7 @@ from io_utils import force_utf8
 from proxy_config import describe, parse_proxy
 from sender import FloodDetected, send_one
 
-from panel import brand, db, message, replies
+from panel import brand, db, message, notify, report, replies, warmup, watchdog
 
 
 def log(message: str) -> None:
@@ -153,6 +153,17 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     db.log_send(campaign["id"], target["username"], name, result.ok, result.reason)
     db.close_target(campaign["id"], target["recipient_id"],
                     "sent" if result.ok else "failed", result.reason, name)
+    db.bump_attempt(campaign["id"], result.ok)
+
+    # Сторож: 3 отказа «закрыт для сообщений» подряд — аккаунт на паузу.
+    if not result.ok:
+        pause, why = watchdog.account_verdict(db.privacy_streak(name))
+        if pause:
+            db.set_account(name, status="paused", paused_until=time.time() + 6 * 3600)
+            db.event("account_paused", name, why)
+            log(f"⛔ {name} на паузе 6 ч: {why}")
+            await notify.send(pool, f"⛔ {name}: {why}. Аккаунт на паузе 6 часов.", name)
+
     if result.ok:
         log(f"✅ {name} → @{target['username']}")
     else:
@@ -175,8 +186,33 @@ async def main_async(args) -> int:
     pool = Pool(accounts_cfg)
     log(f"аккаунтов в пуле: {len(accounts_cfg)}")
     last_reply_scan = 0.0
+    last_warmup = 0.0
     try:
         while True:
+            # кампании, у которых наступило время старта, выходят из черновиков
+            promoted = db.promote_due()
+            if promoted:
+                log(f"по расписанию стартовало кампаний: {promoted}")
+
+            # прогрев подписками: раз в 20 минут, по одной подписке на аккаунт
+            if not args.once and time.time() - last_warmup > 1200:
+                last_warmup = time.time()
+                try:
+                    actions = await warmup.tick(pool, db.accounts_with_config(accounts_cfg))
+                    if actions:
+                        log("🌱 прогрев: " + ", ".join(actions))
+                except Exception as exc:  # noqa: BLE001
+                    db.event("warmup_error", "", str(exc)[:120])
+
+            # утренняя сводка: один раз в день после 10:00
+            if not args.once and datetime.now().hour >= 10:
+                today = datetime.now().strftime("%Y-%m-%d")
+                if db.meta_get("last_report") != today:
+                    text = report.build(db.accounts_with_config(accounts_cfg))
+                    if await notify.send(pool, text):
+                        db.meta_set("last_report", today)
+                        log("📊 сводка за сутки отправлена в Telegram")
+
             # ответы ищем редко: раз в 10 минут, чтобы не тратить лимиты
             if not args.once and time.time() - last_reply_scan > 600:
                 last_reply_scan = time.time()
@@ -188,6 +224,13 @@ async def main_async(args) -> int:
                     db.event("reply_scan_error", "", str(exc)[:120])
 
             campaign = db.q1("SELECT * FROM campaigns WHERE status='running' ORDER BY id LIMIT 1")
+            if campaign is not None and not db.campaign_due(dict(campaign)):
+                db.heartbeat("waiting", f"кампания «{campaign['name']}» ждёт старта: {campaign['scheduled_at']}")
+                if args.once:
+                    print("waiting_schedule")
+                    return 0
+                await asyncio.sleep(60)
+                continue
             if campaign is None:
                 db.heartbeat("idle", "нет запущенных кампаний")
                 if args.once:
@@ -216,6 +259,25 @@ async def main_async(args) -> int:
             accounts = db.accounts_with_config(accounts_cfg)
             db.heartbeat("working", f"кампания «{campaign['name']}»: {stats['pending']} в очереди")
             state = await run_once(pool, campaign, accounts)
+
+            # Сторож: серия ошибок или высокая их доля — кампанию останавливаем.
+            if state == "sent":
+                row = db.q1("SELECT fail_streak FROM campaigns WHERE id=?", (campaign["id"],))
+                stop, why = watchdog.verdict(db.campaign_stats(campaign["id"]),
+                                             int(row["fail_streak"]) if row else 0)
+                if stop:
+                    db.stop_campaign(campaign["id"], why)
+                    log(f"🛑 сторож остановил кампанию «{campaign['name']}»: {why}")
+                    try:
+                        await notify.send(
+                            pool, f"🛑 Кампания «{campaign['name']}» остановлена сторожем: {why}.\n"
+                                  f"Проверьте аккаунты и текст, потом запустите снова.")
+                    except Exception as exc:  # noqa: BLE001
+                        db.event("notify_error", "", str(exc)[:120])
+                    if args.once:
+                        print("once:stopped_by_watchdog")
+                        return 0
+                    continue
 
             if args.once:
                 print(f"once:{state}")

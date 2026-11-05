@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from config_loader import ConfigError, load_config_from_txt
 from csv_loader import normalise
 
-from panel import brand, db, message
+from panel import brand, db, message, watchdog
 
 PANEL_NAME = brand.PANEL
 COOKIE = "pochtamt"
@@ -220,7 +220,8 @@ def campaign_create(request: Request, name: str = Form(...), template: str = For
                     min_delay: int = Form(25), max_delay: int = Form(70),
                     hour_limit: int = Form(10), window_start: int = Form(9),
                     window_end: int = Form(21), allow_self: int = Form(0),
-                    allow_repeat: int = Form(0), user: str = Depends(current_user)):
+                    allow_repeat: int = Form(0), scheduled_at: str = Form(""),
+                    user: str = Depends(current_user)):
     names: list[str] = []
     for raw in recipients.replace(",", "\n").splitlines():
         value = normalise(raw)
@@ -229,12 +230,16 @@ def campaign_create(request: Request, name: str = Form(...), template: str = For
     if not names:
         raise HTTPException(400, "нет получателей")
     db.upsert_recipients([(n, "", "") for n in names])
+    when = scheduled_at.strip().replace("T", " ")
+    if when and len(when) == 16:
+        when += ":00"
     cid = db.create_campaign(name.strip() or "без названия", template.strip(), names,
                              intro=intro.strip(),
                              min_delay=min_delay, max_delay=max(min_delay, max_delay),
                              hour_limit=max(1, hour_limit),
                              window_start=window_start, window_end=window_end,
-                             allow_self=bool(allow_self), allow_repeat=bool(allow_repeat))
+                             allow_self=bool(allow_self), allow_repeat=bool(allow_repeat),
+                             scheduled_at=when)
     db.event("campaign_created", "", f"кампания «{name}»: {len(names)} получателей")
     return RedirectResponse(f"/campaigns/{cid}", status_code=303)
 
@@ -354,7 +359,8 @@ def logs_page(request: Request, user: str = Depends(current_user)):
 def settings_page(request: Request, user: str = Depends(current_user)):
     accounts = db.accounts_with_config(config_accounts())
     return render(request, "settings.html", accounts=accounts,
-                  replied=db.replied(limit=10), today=time.strftime("%Y-%m-%d"))
+                  replied=db.replied(limit=10), today=time.strftime("%Y-%m-%d"),
+                  thresholds=watchdog.describe_thresholds())
 
 
 @app.post("/settings/account")

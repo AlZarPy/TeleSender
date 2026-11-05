@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS recipients (
     status     TEXT NOT NULL DEFAULT 'active',     -- active | blocked
     replied    INTEGER NOT NULL DEFAULT 0,         -- ответил: писать повторно можно
     last_reply TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
 CREATE TABLE IF NOT EXISTS campaigns (
@@ -52,7 +52,11 @@ CREATE TABLE IF NOT EXISTS campaigns (
     window_end   INTEGER NOT NULL DEFAULT 21,
     allow_self   INTEGER NOT NULL DEFAULT 0,
     allow_repeat INTEGER NOT NULL DEFAULT 0,       -- разрешить писать тем, кому уже писали
-    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    scheduled_at TEXT NOT NULL DEFAULT '',         -- не стартовать раньше этого времени
+    attempts     INTEGER NOT NULL DEFAULT 0,       -- сколько попыток сделано
+    fail_streak  INTEGER NOT NULL DEFAULT 0,       -- ошибок подряд
+    stopped_reason TEXT NOT NULL DEFAULT '',
+    created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     started_at   TEXT,
     finished_at  TEXT
 );
@@ -64,7 +68,7 @@ CREATE TABLE IF NOT EXISTS campaign_targets (
     reason       TEXT NOT NULL DEFAULT '',
     account      TEXT NOT NULL DEFAULT '',
     msg_id       INTEGER NOT NULL DEFAULT 0,
-    updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     PRIMARY KEY (campaign_id, recipient_id)
 );
 
@@ -76,12 +80,12 @@ CREATE TABLE IF NOT EXISTS sends (
     ok           INTEGER NOT NULL,
     reason       TEXT NOT NULL DEFAULT '',
     msg_id       INTEGER NOT NULL DEFAULT 0,
-    ts           TEXT NOT NULL DEFAULT (datetime('now'))
+    ts           TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
 CREATE TABLE IF NOT EXISTS events (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts      TEXT NOT NULL DEFAULT (datetime('now')),
+    ts      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     kind    TEXT NOT NULL,
     account TEXT NOT NULL DEFAULT '',
     detail  TEXT NOT NULL DEFAULT ''
@@ -92,6 +96,19 @@ CREATE TABLE IF NOT EXISTS worker_state (
     ts     REAL NOT NULL,
     status TEXT NOT NULL DEFAULT 'idle',
     detail TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS warmup_actions (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    account TEXT NOT NULL,
+    ts      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    channel TEXT NOT NULL,
+    UNIQUE (account, channel)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sends_ts ON sends(ts, account);
@@ -120,6 +137,10 @@ def _migrate() -> None:
             "intro": "TEXT NOT NULL DEFAULT ''",
             "hour_limit": "INTEGER NOT NULL DEFAULT 10",
             "allow_repeat": "INTEGER NOT NULL DEFAULT 0",
+            "scheduled_at": "TEXT NOT NULL DEFAULT ''",
+            "attempts": "INTEGER NOT NULL DEFAULT 0",
+            "fail_streak": "INTEGER NOT NULL DEFAULT 0",
+            "stopped_reason": "TEXT NOT NULL DEFAULT ''",
         },
         "accounts": {
             "warmup_start": "TEXT NOT NULL DEFAULT ''",
@@ -199,7 +220,7 @@ def accounts_with_config(config_accounts: list[dict]) -> list[dict]:
     """Сливает config.txt и настройки из БД в один список для интерфейса."""
     stored = {r["session_name"]: dict(r) for r in q("SELECT * FROM accounts")}
     today = q("""SELECT account, COUNT(*) c FROM sends
-                 WHERE ok=1 AND date(ts)=date('now') GROUP BY account""")
+                 WHERE ok=1 AND date(ts)=date('now','localtime') GROUP BY account""")
     sent_today = {r["account"]: r["c"] for r in today}
     out = []
     for acc in config_accounts:
@@ -268,14 +289,15 @@ def block_recipient(username: str, blocked: bool = True) -> None:
 def create_campaign(name: str, template: str, recipients: list[str], *,
                     intro: str = "", min_delay: int = 25, max_delay: int = 70,
                     hour_limit: int = 10, window_start: int = 9, window_end: int = 21,
-                    allow_self: bool = False, allow_repeat: bool = False) -> int:
+                    allow_self: bool = False, allow_repeat: bool = False,
+                    scheduled_at: str = "") -> int:
     with connect() as conn:
         cur = conn.execute(
             """INSERT INTO campaigns(name, template, intro, min_delay, max_delay, hour_limit,
-                                     window_start, window_end, allow_self, allow_repeat)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                                     window_start, window_end, allow_self, allow_repeat, scheduled_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (name, template, intro, min_delay, max_delay, hour_limit,
-             window_start, window_end, int(allow_self), int(allow_repeat)),
+             window_start, window_end, int(allow_self), int(allow_repeat), scheduled_at),
         )
         cid = cur.lastrowid or 0
         for username in recipients:
@@ -308,7 +330,7 @@ def next_target(campaign_id: int):
 def close_target(campaign_id: int, recipient_id: int, state: str, reason: str = "",
                  account: str = "", msg_id: int = 0) -> None:
     execute("""UPDATE campaign_targets
-               SET state=?, reason=?, account=?, msg_id=?, updated_at=datetime('now')
+               SET state=?, reason=?, account=?, msg_id=?, updated_at=datetime('now','localtime')
                WHERE campaign_id=? AND recipient_id=?""",
             (state, reason, account, msg_id, campaign_id, recipient_id))
 
@@ -323,10 +345,82 @@ def log_send(campaign_id: int, recipient: str, account: str, ok: bool,
 def set_campaign_status(campaign_id: int, status: str) -> None:
     extra = ""
     if status == "running":
-        extra = ", started_at=COALESCE(started_at, datetime('now'))"
+        extra = ", started_at=COALESCE(started_at, datetime('now','localtime'))"
     if status in ("done", "stopped"):
-        extra = ", finished_at=datetime('now')"
+        extra = ", finished_at=datetime('now','localtime')"
     execute(f"UPDATE campaigns SET status=?{extra} WHERE id=?", (status, campaign_id))
+
+
+def bump_attempt(campaign_id: int, ok: bool) -> None:
+    """Считает попытки и серию ошибок подряд — по ним работает сторож."""
+    if ok:
+        execute("UPDATE campaigns SET attempts=attempts+1, fail_streak=0 WHERE id=?", (campaign_id,))
+    else:
+        execute("UPDATE campaigns SET attempts=attempts+1, fail_streak=fail_streak+1 WHERE id=?",
+                (campaign_id,))
+
+
+def stop_campaign(campaign_id: int, reason: str) -> None:
+    execute("""UPDATE campaigns SET status='stopped', stopped_reason=?, finished_at=datetime('now','localtime')
+               WHERE id=?""", (reason, campaign_id))
+    event("watchdog_stop", "", f"кампания #{campaign_id} остановлена: {reason}")
+
+
+def privacy_streak(account: str, limit: int = 5) -> int:
+    """Сколько подряд последних отправок закрыты для сообщений."""
+    rows = q("SELECT ok, reason FROM sends WHERE account=? ORDER BY id DESC LIMIT ?", (account, limit))
+    streak = 0
+    for row in rows:
+        if not row["ok"] and row["reason"] in ("privacy", "forbidden"):
+            streak += 1
+        else:
+            break
+    return streak
+
+
+# ── мелочи: настройки в базе и прогревочные подписки ───────────────────────
+def meta_get(key: str, default: str = "") -> str:
+    row = q1("SELECT value FROM meta WHERE key=?", (key,))
+    return row["value"] if row else default
+
+
+def meta_set(key: str, value: str) -> None:
+    execute("""INSERT INTO meta(key, value) VALUES (?,?)
+               ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (key, value))
+
+
+def warmup_done(account: str, channel: str) -> bool:
+    return q1("SELECT 1 AS x FROM warmup_actions WHERE account=? AND channel=?",
+              (account, channel)) is not None
+
+
+def warmup_mark(account: str, channel: str) -> None:
+    execute("INSERT OR IGNORE INTO warmup_actions(account, channel) VALUES (?,?)", (account, channel))
+    event("warmup", account, f"подписка на {channel}")
+
+
+def warmup_count_today(account: str) -> int:
+    row = q1("""SELECT COUNT(*) c FROM warmup_actions
+                WHERE account=? AND date(ts)=date('now','localtime')""", (account,))
+    return int(row["c"]) if row else 0
+
+
+def promote_due() -> int:
+    """Черновики с наступившим временем старта переводим в работу."""
+    rows = q("""SELECT id, name FROM campaigns
+                WHERE status='draft' AND scheduled_at<>'' AND scheduled_at<=datetime('now','localtime')""")
+    for row in rows:
+        set_campaign_status(row["id"], "running")
+        event("campaign_scheduled_start", "", f"кампания «{row['name']}» стартовала по расписанию")
+    return len(rows)
+
+
+def campaign_due(campaign: dict) -> bool:
+    when = (campaign.get("scheduled_at") or "").strip()
+    if not when:
+        return True
+    row = q1("SELECT ? <= datetime('now','localtime') AS due", (when,))
+    return bool(row and row["due"])
 
 
 def sent_before(username: str) -> bool:
@@ -338,7 +432,7 @@ def sent_before(username: str) -> bool:
 def hour_sent(account: str) -> int:
     """Сколько успешных отправок у аккаунта за последний час."""
     row = q1("""SELECT COUNT(*) c FROM sends
-                WHERE account=? AND ok=1 AND ts >= datetime('now','-1 hour')""", (account,))
+                WHERE account=? AND ok=1 AND ts >= datetime('now','localtime','-1 hour')""", (account,))
     return int(row["c"]) if row else 0
 
 

@@ -21,3 +21,6 @@ panel.db-*
 
 # блокировка единственного воркера
 panel/worker.lock
+
+# личные списки
+warmup_channels.txt

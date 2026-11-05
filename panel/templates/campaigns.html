@@ -43,6 +43,9 @@
       <label>писать тем, кому уже писали
         <select name="allow_repeat"><option value="0">нет — пропускать</option><option value="1">да, разрешить</option></select>
       </label>
+      <label>стартовать в (пусто — сразу)
+        <input type="datetime-local" name="scheduled_at">
+      </label>
     </div>
 
     <button type="submit">Создать кампанию</button>
@@ -65,6 +68,9 @@
     <td>{{ c.stats.sent }}</td>
     <td>{{ c.stats.failed }}</td>
     <td>
+      {% if c.status in ('draft','paused') and c.scheduled_at %}
+        <span class="pill pending">ждёт {{ c.scheduled_at }}</span>
+      {% endif %}
       {% if c.status in ('draft','paused') %}
       <form method="post" action="/campaigns/{{ c.id }}/start" style="display:inline">
         <button class="ghost" type="submit">Запустить</button></form>

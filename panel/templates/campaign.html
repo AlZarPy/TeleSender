@@ -7,9 +7,16 @@
   паузы {{ campaign.min_delay }}–{{ campaign.max_delay }} с ·
   не больше {{ campaign.hour_limit }} в час ·
   создана {{ campaign.created_at }}
+  {% if campaign.scheduled_at %} · <b>старт {{ campaign.scheduled_at }}</b>{% endif %}
   {% if campaign.allow_self %} · разрешена отправка себе{% endif %}
   {% if campaign.allow_repeat %} · повторные отправки разрешены{% else %} · повторные отправки пропускаются{% endif %}
 </p>
+
+{% if campaign.status == 'stopped' and campaign.stopped_reason %}
+<div class="card" style="border-left:3px solid #F2A0A0">
+  <b>Кампания остановлена:</b> {{ campaign.stopped_reason }}
+</div>
+{% endif %}
 
 <div class="grid" style="margin-bottom:16px">
   <div class="card"><div class="num">{{ stats.pending }}</div><div class="lbl">в очереди</div></div>
