@@ -397,7 +397,10 @@ def main() -> None:
     db.sync_accounts([a["session_name"] for a in config_accounts()])
     port = int(os.environ.get("PANEL_PORT", "8765"))
     print(f"«{PANEL_NAME}» слушает http://{lan_ip()}:{port}  (пароль в .env: PANEL_PASSWORD)")
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
+    # по умолчанию слушаем все интерфейсы (панель обычно за прокси/туннелем);
+    # на сервере ставим PANEL_HOST=127.0.0.1, чтобы порт не торчал наружу
+    host = os.environ.get("PANEL_HOST", "0.0.0.0")
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 if __name__ == "__main__":
