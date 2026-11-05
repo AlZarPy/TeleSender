@@ -3,19 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}{{ PANEL }}{% endblock %} · {{ APP }}</title>
+  <title>{% block title %}{{ PANEL }}{% endblock %} · {{ PANEL }}, панель {{ APP }}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+{% set path = request.url.path %}
 <header class="topbar">
-  <a class="brand" href="/">{{ APP }} <span class="brand-sub">· {{ PANEL }}</span></a>
+  <a class="brand" href="/" title="{{ APP }} — сервис рассылки, {{ PANEL }} — его панель управления">
+    <span class="brand-service">{{ APP }}</span>
+    <span class="brand-panel">{{ PANEL }}</span>
+  </a>
   <nav>
-    <a href="/">Дашборд</a>
-    <a href="/campaigns">Кампании</a>
-    <a href="/base">Получатели</a>
-    <a href="/proxies">Прокси</a>
-    <a href="/logs">Журнал</a>
-    <a href="/settings">Настройки</a>
+    <a href="/" class="{{ 'active' if path == '/' else '' }}">Дашборд</a>
+    <a href="/campaigns" class="{{ 'active' if path.startswith('/campaigns') else '' }}">Кампании</a>
+    <a href="/base" class="{{ 'active' if path.startswith('/base') else '' }}">Получатели</a>
+    <a href="/proxies" class="{{ 'active' if path.startswith('/proxies') else '' }}">Прокси</a>
+    <a href="/logs" class="{{ 'active' if path.startswith('/logs') else '' }}">Журнал</a>
+    <a href="/settings" class="{{ 'active' if path.startswith('/settings') else '' }}">Настройки</a>
     <a class="exit" href="/logout">Выйти</a>
   </nav>
   <span class="badge {{ 'on' if worker_alive else 'off' }}">
@@ -23,12 +27,18 @@
   </span>
 </header>
 
+<div class="crumbs">
+  {% set chain = crumbs(path) %}
+  {% for item in chain %}{% if loop.last %}<b>{{ item }}</b>{% else %}<span>{{ item }}</span><span class="sep">›</span>{% endif %}{% endfor %}
+</div>
+
 <main>
   {% block content %}{% endblock %}
 </main>
 
 <footer>
-  {{ lan_ip }}:{{ port }} · {{ worker.status if worker else '—' }}
+  {{ PANEL }} — панель управления {{ APP }} · {{ lan_ip }}:{{ port }} ·
+  {{ worker.status if worker else '—' }}
   {{ worker.detail if worker and worker.detail else '' }}
 </footer>
 </body>

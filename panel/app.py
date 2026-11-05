@@ -46,6 +46,8 @@ templates.env.globals.update(
     campaign_status=brand.campaign_status,
     target_state=brand.target_state,
     stamp=brand.stamp,
+    section_of=brand.section_of,
+    crumbs=brand.crumbs,
 )
 
 

@@ -71,3 +71,30 @@ def target_state(value: str) -> str:
 
 def stamp(worker_alive: bool) -> str:
     return "почтамт работает" if worker_alive else "почтамт закрыт"
+
+
+# Иерархия: TheПечкин — сервис, Почтамт — панель управления, разделы внутри панели.
+SECTIONS: tuple[tuple[str, str], ...] = (
+    ("/campaigns", "Кампании"),
+    ("/base", "Получатели"),
+    ("/proxies", "Прокси"),
+    ("/logs", "Журнал"),
+    ("/settings", "Настройки"),
+)
+
+
+def section_of(path: str) -> str:
+    """Какой раздел панели открыт. «/» — дашборд."""
+    for prefix, label in SECTIONS:
+        if path.startswith(prefix):
+            return label
+    return "Дашборд"
+
+
+def crumbs(path: str) -> list[str]:
+    """Хлебные крошки: Почтамт → раздел → объект."""
+    parts = [PANEL, section_of(path)]
+    pieces = [p for p in path.strip("/").split("/") if p]
+    if len(pieces) >= 2 and pieces[1].isdigit():
+        parts.append(f"#{pieces[1]}")
+    return parts
