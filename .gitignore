@@ -24,3 +24,6 @@ panel/worker.lock
 
 # личные списки
 warmup_channels.txt
+
+# материалы презентации (генерируются скриптом)
+presentation/
