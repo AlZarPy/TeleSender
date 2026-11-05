@@ -51,7 +51,30 @@
       </label>
     </div>
 
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+      <button class="ghost" type="button" onclick="prepareText('template')">Подготовить текст</button>
+      <button class="ghost" type="button" onclick="prepareText('intro')">Подготовить вступление</button>
+      <span id="prepInfo" class="small muted"></span>
+    </div>
+
     <button type="submit">Создать кампанию</button>
+
+<script>
+async function prepareText(field) {
+  const box = document.querySelector('[name=' + field + ']');
+  const info = document.getElementById('prepInfo');
+  if (!box) return;
+  const body = new FormData();
+  body.append('text', box.value);
+  const res = await fetch('/tools/prepare', { method: 'POST', body: body });
+  if (!res.ok) { info.textContent = 'не удалось подготовить'; return; }
+  const data = await res.json();
+  box.value = data.text;
+  info.textContent = data.groups
+    ? 'готово: вариантов ' + data.variants + ' — каждому уйдёт свой'
+    : 'слэшей не нашёл: пишите как «Привет/здравствуйте»';
+}
+</script>
     <p class="muted small" style="margin:0">
       Кампания создаётся черновиком: сначала проверьте текст на странице кампании, потом запускайте.
     </p>

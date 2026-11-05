@@ -63,8 +63,31 @@
 <div class="card note-paper"><pre style="white-space:pre-wrap;margin:0">📎 {{ campaign.attachment }}</pre></div>
 {% endif %}
 
+{% if request.query_params.get('prepared') %}
+<div class="card" style="border-color:#2f6b3c">Текст подготовлен: вариантов {{ request.query_params.get('prepared') }} — каждому получателю уйдёт свой.</div>
+{% endif %}
+
+{% if request.query_params.get('saved') %}
+<div class="card" style="border-color:#2f6b3c">Текст сохранён.</div>
+{% endif %}
+
 <h2>Текст сообщения</h2>
-<div class="card note-paper"><pre style="white-space:pre-wrap;margin:0">{{ campaign.template }}</pre></div>
+<div class="card">
+  <form method="post" action="/campaigns/{{ campaign.id }}/text">
+    <label>вступление
+      <textarea name="intro" style="min-height:60px">{{ campaign.intro or '' }}</textarea>
+    </label>
+    <label>текст сообщения
+      <textarea name="template" required style="min-height:170px">{{ campaign.template }}</textarea>
+    </label>
+    <p class="muted small" style="margin:0 0 10px">
+      Чтобы текст не повторялся, пишите варианты через слэш: <code>Привет/здравствуйте</code>,
+      <code>делаешь много/мало</code>. Кнопка «Подготовить» превратит их в варианты — каждому уйдёт свой.
+    </p>
+    <button type="submit" name="action" value="save" class="ghost">Сохранить</button>
+    <button type="submit" name="action" value="prepare">Подготовить текст</button>
+  </form>
+</div>
 
 <h2>Добавить получателей из базы</h2>
 <div class="card">

@@ -18,7 +18,7 @@ import urllib.parse
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -286,6 +286,46 @@ def base_remove(username: str = Form(...), user: str = Depends(current_user)):
     """Удалить из базы совсем: из всех кампаний тоже убирается, квитанции остаются."""
     db.remove_recipient(username)
     return RedirectResponse("/base", status_code=303)
+
+
+@app.post("/campaigns/{cid}/text")
+def campaign_text(cid: int, template: str = Form(""), intro: str = Form(""),
+                  action: str = Form("save"), user: str = Depends(current_user)):
+    """Сохраняет текст кампании; action=prepare — ещё и превращает слэши в варианты."""
+    if db.q1("SELECT id FROM campaigns WHERE id=?", (cid,)) is None:
+        raise HTTPException(404)
+    if action == "prepare":
+        body = message.prepare(template)
+        head = message.prepare(intro)
+        total = body["variants"] if body["groups"] else head["variants"]
+    else:
+        body, head, total = {"text": template}, {"text": intro}, 1
+    db.execute("UPDATE campaigns SET template=?, intro=? WHERE id=?",
+               (body["text"], head["text"], cid))
+    if action == "prepare":
+        db.event("text_prepared", "", f"кампания #{cid}: вариантов {total}")
+        return RedirectResponse(f"/campaigns/{cid}?prepared={total}", status_code=303)
+    return RedirectResponse(f"/campaigns/{cid}?saved=1", status_code=303)
+
+
+@app.post("/tools/prepare")
+def tools_prepare(text: str = Form(...), user: str = Depends(current_user)):
+    """Готовит текст рассылки: слэши → варианты. Возвращает готовый текст и статистику."""
+    return JSONResponse(message.prepare(text))
+
+
+@app.post("/campaigns/{cid}/prepare")
+def campaign_prepare(cid: int, user: str = Depends(current_user)):
+    """То же самое, но для уже созданной кампании — правит шаблон и вступление."""
+    row = db.q1("SELECT * FROM campaigns WHERE id=?", (cid,))
+    if row is None:
+        raise HTTPException(404)
+    body = message.prepare(row["template"])
+    intro = message.prepare(row["intro"] or "")
+    db.execute("UPDATE campaigns SET template=?, intro=? WHERE id=?",
+               (body["text"], intro["text"], cid))
+    db.event("text_prepared", "", f"кампания #{cid}: вариантов {body['variants']}")
+    return RedirectResponse(f"/campaigns/{cid}?prepared={body['variants']}", status_code=303)
 
 
 @app.post("/campaigns/{cid}/add")

@@ -114,3 +114,48 @@ def worst_level(notes: list[tuple[str, str]]) -> str:
     if any(level == "warn" for level, _ in notes):
         return "warn"
     return "ok"
+
+
+# ── подготовка текста: слэши → варианты ────────────────────────────────────
+_URL = re.compile(r"https?://\S+|t\.me/\S+|@\w+")
+_WORD = r"[А-Яа-яЁёA-Za-z][\w\-]*"
+SLASH_GROUP = re.compile(rf"(?<![\w/.:-])({_WORD}(?:[ \t]+{_WORD})*(?:/{_WORD}(?:[ \t]+{_WORD})*)+)(?![\w/.:-])")
+
+
+def prepare(text: str) -> dict:
+    """Превращает «Привет/здравствуйте» в {Привет|здравствуйте}.
+
+    Что не трогаем: ссылки, юзернеймы, даты и дроби (13/11), уже готовые
+    фигурные скобки, пути к файлам. Возвращает текст и статистику.
+    """
+    protected: list[str] = []
+
+    def keep(match: re.Match) -> str:
+        protected.append(match.group(0))
+        return f"\x00{len(protected) - 1}\x00"
+
+    working = _URL.sub(keep, text)
+    working = _SPINTAX.sub(keep, working)
+
+    groups = 0
+
+    def convert(match: re.Match) -> str:
+        nonlocal groups
+        raw = match.group(1)
+        parts = [part.strip() for part in raw.split("/")]
+        parts = [part for part in parts if part]
+        if len(parts) < 2:
+            return raw
+        groups += 1
+        return "{" + "|".join(parts) + "}"
+
+    working = SLASH_GROUP.sub(convert, working)
+    for index, value in enumerate(protected):
+        working = working.replace(f"\x00{index}\x00", value)
+
+    return {
+        "text": working,
+        "groups": groups,
+        "variants": variants_count(working),
+        "changed": working != text,
+    }
