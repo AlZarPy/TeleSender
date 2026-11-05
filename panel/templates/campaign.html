@@ -19,10 +19,11 @@
 {% endif %}
 
 <div class="grid" style="margin-bottom:16px">
-  <div class="card"><div class="num">{{ stats.pending }}</div><div class="lbl">в очереди</div></div>
-  <div class="card"><div class="num">{{ stats.sent }}</div><div class="lbl">отправлено</div></div>
-  <div class="card"><div class="num">{{ stats.failed }}</div><div class="lbl">{{ plural(stats.failed, 'ошибка', 'ошибки', 'ошибок') }}</div></div>
-  <div class="card"><div class="num">{{ stats.total }}</div><div class="lbl">всего получателей</div></div>
+  <div class="card"><div class="num">{{ funnel.total }}</div><div class="lbl">в маршруте</div></div>
+  <div class="card"><div class="num">{{ funnel.sent }}</div><div class="lbl">доставлено</div></div>
+  <div class="card"><div class="num">{{ funnel.replied }}</div><div class="lbl">ответили</div></div>
+  <div class="card"><div class="num">{{ funnel.conversion }}%</div><div class="lbl">конверсия в ответ</div></div>
+  <div class="card"><div class="num">{{ funnel.failed }}</div><div class="lbl">{{ plural(funnel.failed, 'ошибка', 'ошибки', 'ошибок') }}</div></div>
 </div>
 
 <div class="row" style="margin-bottom:18px">
@@ -121,14 +122,24 @@
 <h2>Получатели ({{ targets|length }})</h2>
 <div class="tablewrap">
 <table>
-  <tr><th>получатель</th><th>статус</th><th>причина</th><th>аккаунт</th><th>когда</th></tr>
+  <tr><th>получатель</th><th>статус</th><th>причина</th><th>аккаунт</th><th>когда</th><th></th></tr>
   {% for t in targets %}
   <tr>
     <td>{{ t.username }}{% if t.first_name %} <span class="muted small">({{ t.first_name }})</span>{% endif %}</td>
-    <td><span class="pill {{ t.state }}">{{ target_state(t.state) }}</span></td>
+    <td>
+      <span class="pill {{ t.state }}">{{ target_state(t.state) }}</span>
+      {% if t.replied %}<span class="pill ok" title="ответ {{ t.last_reply }}">ответил</span>{% endif %}
+    </td>
     <td class="small muted">{{ reason_label(t.reason) }}{% if reason_hint(t.reason) %}<br><span class="small">{{ reason_hint(t.reason) }}</span>{% endif %}</td>
     <td class="small">{{ t.account }}</td>
     <td class="small muted">{{ t.updated_at }}</td>
+    <td>
+      <form method="post" action="/campaigns/{{ campaign.id }}/targets/{{ t.recipient_id }}/delete"
+            onsubmit="return confirm('Убрать @{{ t.username }} из этого обхода? В базе он останется.')"
+            style="display:inline">
+        <button class="ghost small" type="submit">убрать</button>
+      </form>
+    </td>
   </tr>
   {% endfor %}
 </table>

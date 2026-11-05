@@ -205,6 +205,7 @@ def dashboard(request: Request, user: str = Depends(current_user)):
     recent = [dict(r) for r in db.q("SELECT * FROM sends ORDER BY id DESC LIMIT 15")]
     events = [dict(r) for r in db.q("SELECT * FROM events ORDER BY id DESC LIMIT 10")]
     return render(request, "dashboard.html", accounts=health.with_health(accounts), campaigns=campaigns,
+                  funnel=db.global_funnel(),
                   totals=totals, recent=recent, events=events)
 
 
@@ -258,7 +259,8 @@ def campaign_page(request: Request, cid: int, user: str = Depends(current_user))
     campaign = dict(row)
     stats = db.campaign_stats(cid)
     targets = [dict(r) for r in db.q("""
-        SELECT t.state, t.reason, t.account, t.updated_at, r.username, r.first_name
+        SELECT t.recipient_id, t.state, t.reason, t.account, t.updated_at,
+               r.username, r.first_name, r.replied, r.last_reply
         FROM campaign_targets t JOIN recipients r ON r.id=t.recipient_id
         WHERE t.campaign_id=? ORDER BY t.updated_at DESC, t.recipient_id LIMIT 200""", (cid,))]
     sends = [dict(r) for r in db.q(
@@ -266,10 +268,24 @@ def campaign_page(request: Request, cid: int, user: str = Depends(current_user))
     notes = message.lint(campaign["template"], campaign.get("intro") or "")
     return render(request, "campaign.html", campaign=campaign, stats=stats,
                   targets=targets, sends=sends, notes=notes, worst=message.worst_level(notes),
-                  base_left=db.base_not_in_campaign(cid),
+                  base_left=db.base_not_in_campaign(cid), funnel=db.campaign_funnel(cid),
                   tags=db.tag_names(),
                   seg_never=len(db.segment(cid, never_written=True)),
                   seg_replied=len(db.segment(cid, answered_only=True)))
+
+
+@app.post("/campaigns/{cid}/targets/{rid}/delete")
+def campaign_remove_target(cid: int, rid: int, user: str = Depends(current_user)):
+    """Убрать человека из кампании: он остаётся в базе."""
+    db.remove_target(cid, rid)
+    return RedirectResponse(f"/campaigns/{cid}", status_code=303)
+
+
+@app.post("/base/delete")
+def base_remove(username: str = Form(...), user: str = Depends(current_user)):
+    """Удалить из базы совсем: из всех кампаний тоже убирается, квитанции остаются."""
+    db.remove_recipient(username)
+    return RedirectResponse("/base", status_code=303)
 
 
 @app.post("/campaigns/{cid}/add")

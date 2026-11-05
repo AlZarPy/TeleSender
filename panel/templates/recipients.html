@@ -61,6 +61,11 @@
         <input type="hidden" name="blocked" value="{{ 0 if r.status == 'blocked' else 1 }}">
         <button class="ghost small" type="submit">{{ 'Разблокировать' if r.status == 'blocked' else 'В блок' }}</button>
       </form>
+      <form method="post" action="/base/delete" style="display:inline"
+            onsubmit="return confirm('Удалить @{{ r.username }} из базы и из всех кампаний? Квитанции останутся.')">
+        <input type="hidden" name="username" value="{{ r.username }}">
+        <button class="ghost small" type="submit" style="color:#8f3421">удалить</button>
+      </form>
     </td>
   </tr>
   {% endfor %}

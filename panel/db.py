@@ -658,3 +658,55 @@ def add_segment(campaign_id: int, tag: str = "", never_written: bool = False,
     """Добавляет в кампанию всех, кто подходит под фильтр. Возвращает число."""
     names = segment(campaign_id, tag, never_written, answered_only)
     return add_targets(campaign_id, names) if names else 0
+
+
+# ── удаление и конверсия ───────────────────────────────────────────────────
+def remove_target(campaign_id: int, recipient_id: int) -> None:
+    """Убирает человека из кампании (в базе он остаётся)."""
+    execute("DELETE FROM campaign_targets WHERE campaign_id=? AND recipient_id=?",
+            (campaign_id, recipient_id))
+
+
+def remove_recipient(username: str) -> int:
+    """Удаляет человека из базы и из всех кампаний. Квитанции остаются в истории."""
+    row = q1("SELECT id FROM recipients WHERE username=?", (username,))
+    if row is None:
+        return 0
+    rid = row["id"]
+    execute("DELETE FROM campaign_targets WHERE recipient_id=?", (rid,))
+    execute("DELETE FROM recipients WHERE id=?", (rid,))
+    event("recipient_removed", "", f"из базы удалён @{username}")
+    return 1
+
+
+def campaign_funnel(campaign_id: int) -> dict:
+    """Воронка кампании: сколько в маршруте, доставлено, ответили, конверсия."""
+    row = q1("""SELECT
+                  COUNT(*) total,
+                  SUM(state='sent') sent,
+                  SUM(state='failed') failed,
+                  SUM(state='skipped') skipped,
+                  SUM(state='pending') pending
+                FROM campaign_targets WHERE campaign_id=?""", (campaign_id,))
+    data = {k: int(row[k] or 0) for k in ("total", "sent", "failed", "skipped", "pending")} if row else {}
+    replied = q1("""SELECT COUNT(*) c FROM campaign_targets t
+                    JOIN recipients r ON r.id=t.recipient_id
+                    WHERE t.campaign_id=? AND r.replied=1""", (campaign_id,))
+    data["replied"] = int(replied["c"]) if replied else 0
+    data["conversion"] = round(100 * data["replied"] / data["sent"], 1) if data.get("sent") else 0.0
+    return data
+
+
+def global_funnel() -> dict:
+    """Общая воронка по всей базе: отправлено, ответили, конверсия."""
+    sent = q1("SELECT COUNT(DISTINCT recipient) c FROM sends WHERE ok=1")
+    replied = q1("SELECT COUNT(*) c FROM recipients WHERE replied=1")
+    total = q1("SELECT COUNT(*) c FROM recipients")
+    sent_n = int(sent["c"]) if sent else 0
+    replied_n = int(replied["c"]) if replied else 0
+    return {
+        "sent": sent_n,
+        "replied": replied_n,
+        "base": int(total["c"]) if total else 0,
+        "conversion": round(100 * replied_n / sent_n, 1) if sent_n else 0.0,
+    }

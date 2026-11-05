@@ -12,6 +12,10 @@
     <div class="num">{{ accounts|selectattr('left_today','gt',0)|list|length }}</div>
     <div class="lbl">со свободной квотой</div>
   </div>
+  <div class="card">
+    <div class="num">{{ funnel.replied }}</div>
+    <div class="lbl">ответили · {{ funnel.conversion }}% от доставленных</div>
+  </div>
 </div>
 
 <h2>Аккаунты</h2>
