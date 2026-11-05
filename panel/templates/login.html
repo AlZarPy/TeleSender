@@ -3,20 +3,133 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Вход · {{ APP }} · {{ PANEL }}</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <title>Вход · {{ PANEL }}, панель {{ APP }}</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ css_v }}">
 </head>
-<body>
-<div class="login card">
-  <div class="brand-service">{{ APP }}</div>
-  <h1 style="margin:2px 0 6px">{{ PANEL }}</h1>
-  <p class="muted small">панель управления сервисом {{ APP }}<br>{{ TAGLINE }}</p>
-  {% if error %}<p class="pill bad">неверный пароль</p>{% endif %}
-  <form method="post" action="/login">
-    <label>пароль<input type="password" name="password" autofocus required></label>
-    <button type="submit">Войти</button>
-  </form>
-  <p class="muted small" style="margin-top:14px">Пароль — в <code>.env</code>, строка <code>PANEL_PASSWORD</code>.</p>
+<body class="login-body">
+<div class="login-split">
+
+  <aside class="login-art">
+    <svg viewBox="0 0 420 560" role="img" aria-label="Почтальон у деревенского забора">
+      <defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#fbe3b6"/>
+          <stop offset="55%" stop-color="#f6cf92"/>
+          <stop offset="100%" stop-color="#eebd7c"/>
+        </linearGradient>
+        <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#cbb27a"/>
+          <stop offset="100%" stop-color="#a98f5c"/>
+        </linearGradient>
+        <linearGradient id="feeld" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#c9a166"/>
+          <stop offset="100%" stop-color="#a8794a"/>
+        </linearGradient>
+      </defs>
+
+      <!-- небо и солнце -->
+      <rect width="420" height="560" fill="url(#sky)"/>
+      <circle cx="112" cy="118" r="58" fill="#f7cd74" opacity=".85"/>
+      <circle cx="112" cy="118" r="40" fill="#fbe0a0"/>
+
+      <!-- дальние холмы и деревня -->
+      <path d="M0 300 Q90 250 170 292 T420 268 V560 H0 Z" fill="url(#hill)" opacity=".75"/>
+      <g fill="#8a6a45" opacity=".85">
+        <path d="M20 292 l26 -22 l26 22 v34 h-52 z"/>
+        <path d="M78 300 l20 -17 l20 17 v26 h-40 z"/>
+        <path d="M330 286 l24 -20 l24 20 v40 h-48 z"/>
+        <path d="M286 296 l17 -14 l17 14 v30 h-34 z"/>
+      </g>
+
+      <!-- земля -->
+      <path d="M0 330 Q120 306 230 330 T420 322 V560 H0 Z" fill="#b99b63"/>
+      <path d="M0 392 Q150 372 300 396 T420 388 V560 H0 Z" fill="#a98a55"/>
+
+      <!-- забор -->
+      <g transform="translate(0,-52)" stroke="#6f5334" stroke-width="9" stroke-linecap="round">
+        <path d="M18 380 V470"/><path d="M74 374 V466"/><path d="M130 380 V470"/>
+        <path d="M186 374 V466"/><path d="M242 380 V470"/>
+        <path d="M6 402 H256"/><path d="M6 440 H256"/>
+      </g>
+
+      <!-- кот на заборе -->
+      <g transform="translate(0,-52)" fill="#6b6259">
+        <ellipse cx="212" cy="352" rx="21" ry="17"/>
+        <circle cx="228" cy="330" r="12"/>
+        <path d="M219 322 l3 -9 l5 7 z"/>
+        <path d="M234 321 l4 -8 l4 9 z"/>
+        <path d="M194 360 q-16 4 -20 20" stroke="#6b6259" stroke-width="7" fill="none" stroke-linecap="round"/>
+      </g>
+      <g transform="translate(0,-52)" fill="#4d463f">
+        <circle cx="231" cy="329" r="1.6"/><circle cx="237" cy="329" r="1.6"/>
+      </g>
+
+      <!-- почтовая сумка с надписью -->
+      <g transform="translate(96 214) rotate(-6)">
+        <rect x="0" y="0" width="150" height="96" rx="10" fill="#b9543a"/>
+        <rect x="0" y="0" width="150" height="20" rx="10" fill="#a34731"/>
+        <path d="M52 0 q23 -34 46 0" fill="none" stroke="#7d3423" stroke-width="7"/>
+        <text x="75" y="62" text-anchor="middle" font-family="Georgia, serif" font-size="19"
+              fill="#f7ecd8">TheПечкин</text>
+      </g>
+
+      <!-- конверт -->
+      <g transform="translate(196 176) rotate(9)">
+        <rect x="0" y="0" width="120" height="78" rx="6" fill="#fdf6e7" stroke="#c9b48c" stroke-width="2"/>
+        <path d="M0 6 L60 44 L120 6" fill="none" stroke="#c9b48c" stroke-width="2.5"/>
+        <circle cx="60" cy="56" r="11" fill="#b9543a" opacity=".9"/>
+        <text x="60" y="60" text-anchor="middle" font-family="Georgia, serif" font-size="9"
+              fill="#fdf6e7">П</text>
+      </g>
+
+      <!-- деревянная вывеска «Почтамт» -->
+      <g transform="translate(28 368) rotate(-3)">
+        <rect x="0" y="0" width="196" height="52" rx="6" fill="#8b6239"/>
+        <rect x="4" y="4" width="188" height="44" rx="4" fill="#a87a49"/>
+        <text x="16" y="33" font-family="Georgia, serif" font-size="24" fill="#f4e7cf">Почтамт</text>
+        <path d="M150 20 h34 m-9 -8 l9 8 l-9 8" fill="none" stroke="#f4e7cf"
+              stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M0 52 v38" stroke="#6f5334" stroke-width="8"/>
+        <path d="M196 52 v38" stroke="#6f5334" stroke-width="8"/>
+      </g>
+
+      <!-- круглый штамп -->
+      <g transform="translate(316 74) rotate(-12)">
+        <circle r="62" fill="none" stroke="#b9543a" stroke-width="3" opacity=".85"/>
+        <circle r="54" fill="none" stroke="#b9543a" stroke-width="1.6"
+                stroke-dasharray="5 5" opacity=".85"/>
+        <text y="-12" text-anchor="middle" font-family="Georgia, serif" font-size="15"
+              letter-spacing="2" fill="#b9543a">ПОЧТАМТ</text>
+        <path d="M-38 0 H38" stroke="#b9543a" stroke-width="1.4" opacity=".8"/>
+        <text y="18" text-anchor="middle" font-family="Georgia, serif" font-size="11"
+              letter-spacing="2.4" fill="#b9543a">ДОСТАВЛЕНО</text>
+      </g>
+    </svg>
+    <p class="login-slogan">Рассылка как инженерная дисциплина<br>с человеческим голосом</p>
+  </aside>
+
+  <main class="login-form">
+    <div class="login-card">
+      <span class="brand-service">{{ APP }}</span>
+      <h1>{{ PANEL }}</h1>
+      <p class="muted small">панель управления сервисом {{ APP }}</p>
+
+      {% if error %}<p class="pill bad" style="margin:12px 0">неверный пароль</p>{% endif %}
+
+      <form method="post" action="/login">
+        <label>пароль<input type="password" name="password" autofocus required
+                            placeholder="••••••••"></label>
+        <button type="submit">Войти</button>
+      </form>
+
+      <p class="muted small" style="margin-top:16px;line-height:1.6">
+        Пароль хранится в <code>.env</code>, строка <code>PANEL_PASSWORD</code>.
+      </p>
+
+      <p class="login-stamp">адресно · прозрачно · под контролем</p>
+    </div>
+  </main>
+
 </div>
 </body>
 </html>
