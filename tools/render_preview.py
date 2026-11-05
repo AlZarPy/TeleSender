@@ -88,5 +88,8 @@ for name, ctx in pages.items():
     # для file:// подставляем стили прямо в страницу, иначе они не подгрузятся
     html = re.sub(r'<link rel="stylesheet" href="/static/style\.css[^"]*">',
                   f"<style>\n{CSS}\n</style>", html)
+    # картинки для file:// подставляем абсолютным путём
+    static_dir = (ROOT / "panel" / "static").as_posix()
+    html = html.replace('src="/static/', 'src="file:///' + static_dir + '/')
     (OUT / name.replace(".html", ".rendered.html")).write_text(html, encoding="utf-8")
     print("готово:", name)
