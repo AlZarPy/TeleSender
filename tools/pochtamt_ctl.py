@@ -122,6 +122,19 @@ def cmd_add(args) -> int:
     return 0
 
 
+def cmd_plan(args) -> int:
+    """Прикидка: сколько аккаунтов нужно на объём к сроку."""
+    import subprocess
+
+    cmd = [sys.executable, str(ROOT / "tools" / "plan.py"),
+           "--recipients", str(args.recipients), "--days", str(args.days)]
+    if args.accounts:
+        cmd += ["--accounts", str(args.accounts)]
+    if args.daily:
+        cmd += ["--daily", str(args.daily)]
+    return subprocess.call(cmd)
+
+
 def cmd_report(_args) -> int:
     db.init()
     print(report.build(_accounts()))
@@ -177,6 +190,13 @@ def main() -> int:
     sub.add_parser("status").set_defaults(func=cmd_status)
     sub.add_parser("campaigns").set_defaults(func=cmd_campaigns)
     sub.add_parser("report").set_defaults(func=cmd_report)
+
+    p = sub.add_parser("plan")
+    p.add_argument("--recipients", type=int, required=True)
+    p.add_argument("--days", type=int, default=6)
+    p.add_argument("--accounts", type=int, default=0)
+    p.add_argument("--daily", type=int, default=40)
+    p.set_defaults(func=cmd_plan)
     p = sub.add_parser("enrich")
     p.add_argument("cid", type=int)
     p.set_defaults(func=cmd_enrich)
