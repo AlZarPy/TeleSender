@@ -31,7 +31,7 @@ from sender import FloodDetected, is_transient, send_one
 
 ROOT = Path(__file__).resolve().parent.parent
 
-from panel import brand, db, message, notify, report, replies, warmup, watchdog
+from panel import brand, db, interchat, message, notify, report, replies, warmup, watchdog
 
 
 def resolve_attachment(value: str) -> str | None:
@@ -244,6 +244,7 @@ async def main_async(args) -> int:
     log(f"аккаунтов в пуле: {len(accounts_cfg)}")
     last_reply_scan = 0.0
     last_warmup = 0.0
+    last_chat = 0.0
     try:
         while True:
             # кампании, у которых наступило время старта, выходят из черновиков
@@ -260,6 +261,16 @@ async def main_async(args) -> int:
                         log("🌱 прогрев: " + ", ".join(actions))
                 except Exception as exc:  # noqa: BLE001
                     db.event("warmup_error", "", str(exc)[:120])
+
+            # прогрев перепиской: раз в 30 минут, только между своими аккаунтами
+            if not args.once and time.time() - last_chat > 1800:
+                last_chat = time.time()
+                try:
+                    chats = await interchat.tick(pool, db.accounts_with_config(accounts_cfg))
+                    if chats:
+                        log("💬 прогрев перепиской: " + "; ".join(chats))
+                except Exception as exc:  # noqa: BLE001
+                    db.event("warmup_chat_error", "", str(exc)[:120])
 
             # утренняя сводка: один раз в день после 10:00
             if not args.once and datetime.now().hour >= 10:
