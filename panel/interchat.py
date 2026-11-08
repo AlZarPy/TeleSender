@@ -143,10 +143,32 @@ async def tick(pool, accounts: list[dict], hour: int | None = None,
         client = await pool.get(src)
         target_client = await pool.get(dst)
         me = await target_client.get_me()
+
+        entity = None
         who = getattr(me, "username", None)
-        entity = f"@{who}" if who else getattr(me, "phone", None)
-        if not entity:
-            raise RuntimeError(f"{dst}: нет ни username, ни телефона")
+        if who:
+            entity = f"@{who}"
+
+        phone = getattr(me, "phone", None)
+        if phone and not str(phone).startswith("+"):
+            phone = "+" + str(phone)
+
+        if entity is None:
+            # у аккаунтов нет username: чтобы написать, нужен доступ —
+            # импортируем номер в контакты и получаем пользователя
+            if not phone:
+                raise RuntimeError(f"{dst}: нет ни username, ни телефона")
+            from telethon.tl.functions.contacts import ImportContactsRequest
+            from telethon.tl.types import InputPhoneContact
+
+            found = await client(ImportContactsRequest([
+                InputPhoneContact(client_id=0, phone=phone,
+                                  first_name=me.first_name or "Контакт", last_name=me.last_name or "")
+            ]))
+            if not found.users:
+                raise RuntimeError(f"{dst}: телефон не найден в Telegram")
+            entity = found.users[0]
+
         await client.send_message(entity, text)
 
     log_lines: list[str] = []

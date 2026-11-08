@@ -54,6 +54,12 @@ async def check(path: Path, api_id: int, api_hash: str) -> dict:
 
 
 async def main_async(folder: Path) -> int:
+    from panel import db as panel_db
+
+    alive, _ = panel_db.worker_alive()
+    if alive:
+        print("воркер держит сессии — сначала остановите его")
+        return 3
     config = load_config_from_txt(None, quiet=True)
     api_id, api_hash = config[0]["api_id"], config[0]["api_hash"]
     sessions = sorted(folder.glob("*.session"))

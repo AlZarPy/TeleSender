@@ -20,6 +20,11 @@ def target() -> str:
 async def send(pool, text: str, prefer_account: str = "") -> bool:
     """Отправляет текст через первый доступный аккаунт. Не роняет воркер при сбое."""
     accounts = [prefer_account] if prefer_account else list(pool.accounts)
+    import os
+
+    if os.environ.get("SENDERX_REQUIRE_PROXY") == "1":
+        accounts = [a for a in accounts
+                    if isinstance(a, dict) and a.get("proxy")] or accounts
     for name in accounts:
         if not name:
             continue

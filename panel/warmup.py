@@ -37,11 +37,15 @@ def channels(path: str | Path | None = None) -> list[str]:
 
 
 def next_channel(account: str, available: list[str]) -> str | None:
-    """Первый канал из списка, на который аккаунт ещё не подписан."""
-    for channel in available:
-        if not db.warmup_done(account, channel):
-            return channel
-    return None
+    """Случайный канал, на который аккаунт ещё не подписан.
+
+    Именно случайный: если все аккаунты пула подписываются на один и тот же канал
+    в один час, это выглядит как coordinated-поведение и связывает аккаунты между собой.
+    """
+    import random
+
+    free = [channel for channel in available if not db.warmup_done(account, channel)]
+    return random.choice(free) if free else None
 
 
 def should_tick(account: dict, per_day: int = PER_DAY) -> bool:

@@ -64,6 +64,8 @@ class Pool:
         if name in self.clients:
             return self.clients[name]
         acc = self.accounts[name]
+        if not acc.get("proxy") and os.environ.get("SENDERX_ALLOW_NO_PROXY") != "1":
+            raise PermissionError(f"{name}: нет прокси — подключение запрещено")
         proxy = parse_proxy(acc.get("proxy"))
         client = TelegramClient(name, acc["api_id"], acc["api_hash"], proxy=proxy)
         await client.connect()
