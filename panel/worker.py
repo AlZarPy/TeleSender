@@ -258,6 +258,7 @@ async def main_async(args) -> int:
             if not args.once and time.time() - last_warmup > 1200:
                 last_warmup = time.time()
                 try:
+                    db.heartbeat("warmup", "прогрев подписками")
                     actions = await warmup.tick(pool, db.accounts_with_config(accounts_cfg))
                     if actions:
                         log("🌱 прогрев: " + ", ".join(actions))
@@ -268,9 +269,16 @@ async def main_async(args) -> int:
             if not args.once and time.time() - last_chat > 1800:
                 last_chat = time.time()
                 try:
-                    chats = await interchat.tick(pool, db.accounts_with_config(accounts_cfg))
-                    if chats:
-                        log("💬 прогрев перепиской: " + "; ".join(chats))
+                    db.heartbeat("warmup", "прогрев перепиской")
+                    async def chat_tick():
+                        try:
+                            chats = await interchat.tick(pool, db.accounts_with_config(accounts_cfg))
+                            if chats:
+                                log("💬 прогрев перепиской: " + "; ".join(chats))
+                        except Exception as exc:  # noqa: BLE001
+                            db.event("warmup_chat_error", "", str(exc)[:120])
+
+                    _chat_task = asyncio.create_task(chat_tick())
                 except Exception as exc:  # noqa: BLE001
                     db.event("warmup_chat_error", "", str(exc)[:120])
 

@@ -105,15 +105,18 @@ async def run_dialog(send, first: str, second: str, sleep=None) -> list[str]:
     pause = sleep or asyncio.sleep
     steps: list[str] = []
 
+    db.heartbeat("warmup", f"переписка {first} ↔ {second}")
     opener = random.choice(OPENERS)
     await send(first, second, opener)
     steps.append(f"{first}→{second}: {opener}")
     await pause(random.uniform(MIN_GAP, MAX_GAP))
+    db.heartbeat("warmup", f"переписка {first} ↔ {second}")
 
     reply = random.choice(REPLIES)
     await send(second, first, reply)
     steps.append(f"{second}→{first}: {reply}")
     await pause(random.uniform(MIN_GAP, MAX_GAP))
+    db.heartbeat("warmup", f"переписка {first} ↔ {second}")
 
     if random.random() < 0.7:
         tail = random.choice(FOLLOWUPS)

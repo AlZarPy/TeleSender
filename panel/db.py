@@ -456,7 +456,7 @@ def heartbeat(status: str = "idle", detail: str = "") -> None:
             (time.time(), status, detail))
 
 
-def worker_alive(max_age: float = 25.0) -> tuple[bool, dict]:
+def worker_alive(max_age: float = 120.0) -> tuple[bool, dict]:
     row = q1("SELECT * FROM worker_state WHERE id=1")
     if not row:
         return False, {}
