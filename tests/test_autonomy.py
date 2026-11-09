@@ -83,10 +83,12 @@ check("в дни прогрева — греем", warmup.should_tick(account_ac
 check("после прогрева — не греем", warmup.should_tick(account_done) is False)
 check("на паузе — не греем", warmup.should_tick(account_paused) is False)
 
-check("следующий канал — первый непройденный",
-      warmup.next_channel("sender1", ["@durov", "@nous"]) == "@durov")
+# канал выбирается случайно из непройденных: так пул не подписывается весь на один канал
+pick = warmup.next_channel("sender1", ["@durov", "@nous"])
+check("канал — из списка непройденных", pick in {"@durov", "@nous"})
 db.warmup_mark("sender1", "@durov")
-check("пройденный канал пропускается", warmup.next_channel("sender1", ["@durov", "@nous"]) == "@nous")
+check("пройденный канал не выдаётся", warmup.next_channel("sender1", ["@durov", "@nous"]) == "@nous")
+check("когда всё пройдено — None", warmup.next_channel("sender1", ["@durov"]) is None)
 check("счётчик за сутки", db.warmup_count_today("sender1") == 1)
 check("лимит 3 в сутки соблюдается", warmup.should_tick(account_active) is True)
 

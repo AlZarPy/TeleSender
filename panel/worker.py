@@ -52,31 +52,101 @@ def log(message: str) -> None:
     print(f"[{datetime.now():%H:%M:%S}] {message}", flush=True)
 
 
+BACKOFF_STEPS = (5, 15, 45, 120, 300)   # пауза после неудачных подключений
+IDLE_CLOSE = 600                        # простаивающий клиент держим не дольше 10 минут
+
+
 class Pool:
-    """Клиенты Telethon по одному на аккаунт, поднимаются лениво."""
+    """Клиенты Telethon по одному на аккаунт, поднимаются лениво.
+
+    Две вещи, которые берегут прокси и журнал:
+      • после неудачного подключения аккаунт отдыхает по нарастающей (5→300 с),
+        а не долбит прокси каждые несколько секунд;
+      • клиент, которым не пользовались N минут, отключается — провайдер
+        держит лишь пару одновременных соединений на логин.
+    """
 
     def __init__(self, accounts: list[dict]):
         self.accounts = {a["session_name"]: a for a in accounts}
         self.clients: dict[str, TelegramClient] = {}
         self.me_ids: dict[str, int | None] = {}
+        self.failures: dict[str, int] = {}
+        self.paused_until: dict[str, float] = {}
+        self.last_used: dict[str, float] = {}
+
+    def _wait_left(self, name: str) -> float:
+        return max(0.0, self.paused_until.get(name, 0.0) - time.time())
+
+    def _note_failure(self, name: str, exc: BaseException) -> None:
+        count = self.failures.get(name, 0) + 1
+        self.failures[name] = count
+        delay = BACKOFF_STEPS[min(count - 1, len(BACKOFF_STEPS) - 1)]
+        self.paused_until[name] = time.time() + delay
+        log(f"{name}: подключение не удалось ({type(exc).__name__}), пауза {delay} с")
 
     async def get(self, name: str) -> TelegramClient:
         if name in self.clients:
+            self.last_used[name] = time.time()
             return self.clients[name]
+
+        wait = self._wait_left(name)
+        if wait > 0:
+            raise ConnectionError(f"{name}: пауза после сбоя, ещё {int(wait)} с")
+
         acc = self.accounts[name]
         if not acc.get("proxy") and os.environ.get("SENDERX_ALLOW_NO_PROXY") != "1":
             raise PermissionError(f"{name}: нет прокси — подключение запрещено")
         proxy = parse_proxy(acc.get("proxy"))
-        client = TelegramClient(name, acc["api_id"], acc["api_hash"], proxy=proxy)
-        await client.connect()
-        if not await client.is_user_authorized():
-            await client.disconnect()
-            raise PermissionError(f"{name}: сессия не авторизована")
-        me = await client.get_me()
+        options: dict = {}
+        if isinstance(proxy, tuple) and proxy and proxy[0] == "mtproxy":
+            # MTProto-прокси работает только для Telegram и соединяется по своему
+            # протоколу — для него нужен отдельный класс соединения Telethon
+            from telethon.network import ConnectionTcpMTProxyRandomizedIntermediate
+
+            options = {"proxy": (proxy[1], int(proxy[2]), proxy[3]),
+                       "connection": ConnectionTcpMTProxyRandomizedIntermediate}
+        client = TelegramClient(name, acc["api_id"], acc["api_hash"],
+                                connection_retries=1, request_retries=2,
+                                auto_reconnect=False, timeout=30, **options)
+        try:
+            await client.connect()
+            if not await client.is_user_authorized():
+                await client.disconnect()
+                raise PermissionError(f"{name}: сессия не авторизована")
+            me = await client.get_me()
+        except Exception as exc:  # noqa: BLE001
+            try:
+                await client.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+            self._note_failure(name, exc)
+            raise
+
         self.clients[name] = client
         self.me_ids[name] = getattr(me, "id", None)
+        self.last_used[name] = time.time()
+        self.failures[name] = 0
+        self.paused_until.pop(name, None)
         log(f"{name}: подключён как @{getattr(me, 'username', '?')} ({describe(proxy)})")
         return client
+
+    async def close_idle(self, max_idle: int = IDLE_CLOSE) -> int:
+        """Отключает клиентов, которыми давно не пользовались. Возвращает их число."""
+        now = time.time()
+        closed = 0
+        for name, client in list(self.clients.items()):
+            if now - self.last_used.get(name, 0) < max_idle:
+                continue
+            try:
+                await client.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+            self.clients.pop(name, None)
+            self.me_ids.pop(name, None)
+            closed += 1
+        if closed:
+            log(f"простаивающих клиентов отключено: {closed}")
+        return closed
 
     async def reset(self, name: str) -> None:
         """Сбрасывает клиент аккаунта — нужно после сетевого сбоя."""
@@ -247,8 +317,14 @@ async def main_async(args) -> int:
     last_reply_scan = 0.0
     last_warmup = 0.0
     last_chat = 0.0
+    last_idle_check = 0.0
     try:
         while True:
+            # раз в 5 минут отпускаем клиентов, которыми давно не пользовались
+            if not args.once and time.time() - last_idle_check > 300:
+                last_idle_check = time.time()
+                await pool.close_idle()
+
             # кампании, у которых наступило время старта, выходят из черновиков
             promoted = db.promote_due()
             if promoted:
