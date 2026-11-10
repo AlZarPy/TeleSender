@@ -360,7 +360,10 @@ async def main_async(args) -> int:
                 last_warmup = time.time()
                 try:
                     db.heartbeat("warmup", "прогрев подписками")
-                    actions = await warmup.tick(pool, live_accounts())
+                    accs_now = live_accounts()
+                    log(f"🌱 прогрев подписками: {len(accs_now)} аккаунтов")
+                    actions = await asyncio.wait_for(
+                        warmup.tick(pool, accs_now), timeout=600)
                     if actions:
                         log("🌱 прогрев: " + ", ".join(actions))
                 except Exception as exc:  # noqa: BLE001
@@ -373,13 +376,18 @@ async def main_async(args) -> int:
                     db.heartbeat("warmup", "прогрев перепиской")
                     async def chat_tick():
                         try:
-                            chats = await interchat.tick(pool, live_accounts())
-                            if chats:
-                                log("💬 прогрев перепиской: " + "; ".join(chats))
+                            chats = await asyncio.wait_for(
+                                interchat.tick(pool, live_accounts()), timeout=1200)
+                            log("💬 прогрев перепиской: " +
+                                ("; ".join(chats) if chats else "пар не выбрано"))
                         except Exception as exc:  # noqa: BLE001
                             db.event("warmup_chat_error", "", str(exc)[:120])
 
                     _chat_task = asyncio.create_task(chat_tick())
+                    # держим сильную ссылку: иначе задача может быть собрана
+                    # сборщиком мусора до того, как переписка дошла до отправки
+                    _BACKGROUND.add(_chat_task)
+                    _chat_task.add_done_callback(_BACKGROUND.discard)
                 except Exception as exc:  # noqa: BLE001
                     db.event("warmup_chat_error", "", str(exc)[:120])
 
@@ -396,7 +404,8 @@ async def main_async(args) -> int:
             if not args.once and time.time() - last_reply_scan > 600:
                 last_reply_scan = time.time()
                 try:
-                    fresh = await replies.scan_pool(pool, live_accounts())
+                    fresh = await asyncio.wait_for(
+                        replies.scan_pool(pool, live_accounts()), timeout=900)
                     if fresh:
                         log(f"💬 ответили: {', '.join('@' + u for u in fresh)}")
                 except Exception as exc:  # noqa: BLE001

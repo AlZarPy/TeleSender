@@ -15,6 +15,8 @@
 """
 from __future__ import annotations
 
+import asyncio
+
 from pathlib import Path
 
 from panel import db
@@ -74,9 +76,15 @@ async def tick(pool, accounts: list[dict], per_day: int = PER_DAY) -> list[str]:
             continue
         try:
             from telethon.tl.functions.channels import JoinChannelRequest
-            client = await pool.get(name)
-            entity = await client.get_entity(channel)
-            await client(JoinChannelRequest(entity))
+
+            async def join() -> None:
+                client = await pool.get(name)
+                entity = await client.get_entity(channel)
+                await client(JoinChannelRequest(entity))
+
+            # подписка не должна вешать весь цикл: канал могли удалить,
+            # прокси мог подвиснуть — ограничиваем каждую попытку
+            await asyncio.wait_for(join(), timeout=45)
         except Exception as exc:  # noqa: BLE001 — один сбойный канал не должен ломать цикл
             db.event("warmup_error", name, f"{channel}: {str(exc)[:100]}")
             db.warmup_mark(name, channel)  # не зацикливаемся на проблемном канале
