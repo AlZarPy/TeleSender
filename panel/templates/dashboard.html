@@ -19,6 +19,53 @@
 </div>
 
 <h2>Аккаунты</h2>
+<h2>По каким цифрам судить о работе</h2>
+<p class="muted small">Нормы — ориентир, а не обещание. Пока отправок меньше двадцати, цифра серая: по ней нельзя делать вывод.</p>
+<div class="tablewrap">
+<table>
+  <tr><th>метрика</th><th>сейчас</th><th>норма</th></tr>
+  {% for q in quality %}
+  <tr>
+    <td>{{ q.label }}</td>
+    <td><span class="pill {{ 'ok' if q.level == 'ok' else ('bad' if q.level == 'bad' else 'pending') }}">{{ q.text }}</span></td>
+    <td class="muted">{{ '≤' if q.inverse else '≥' }} {{ '%.1f%%'|format(q.norm * 100) if q.inverse else '%.0f%%'|format(q.norm * 100) }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+
+<h2>Какие тексты работают</h2>
+<p class="muted small">Один вариант текста уходит с разных аккаунтов разными формулировками. Здесь видно, какой вариант сколько раз ушёл и сколько дал ответов. Меньше двадцати отправок — серо, вывод делать рано.</p>
+<div class="tablewrap">
+<table>
+  <tr><th>вариант</th><th>ушло</th><th>прочитали</th><th>ответили</th><th>ответ, %</th></tr>
+  {% for v in texts %}
+  <tr>
+    <td>№{{ v.variant + 1 }}</td>
+    <td>{{ v.sent }}</td>
+    <td>{{ v.read }}</td>
+    <td>{{ v.replied }}</td>
+    <td><span class="pill {{ 'ok' if v.sent >= 20 and v.reply_share >= 0.08 else ('pending' if v.sent < 20 else 'bad') }}">{{ '%.1f%%'|format(v.reply_share * 100) }}</span></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">пока нет отправок с учётом варианта</td></tr>
+  {% endfor %}
+</table>
+</div>
+
+<h2>Почему отказываются</h2>
+<p class="muted small">Возражения собираются из ответов в переписке за последние 30 дней. Это прямой список того, что править в тексте.</p>
+<div class="tablewrap">
+<table>
+  <tr><th>причина</th><th>сколько</th><th>доля</th></tr>
+  {% for o in objections %}
+  <tr><td>{{ o.reason }}</td><td>{{ o.count }}</td><td class="muted">{{ '%.0f%%'|format(o.share * 100) }}</td></tr>
+  {% else %}
+  <tr><td colspan="3" class="muted">возражений пока не было</td></tr>
+  {% endfor %}
+</table>
+</div>
+
 <div class="tablewrap">
 <table>
   <tr><th>аккаунт</th><th>статус</th><th>сеть</th><th>@SpamBot</th><th>здоровье</th><th>сегодня</th><th>квота</th><th>осталось</th><th>прокси</th></tr>

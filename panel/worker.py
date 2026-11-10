@@ -37,7 +37,7 @@ from sender import FloodDetected, is_transient, send_one
 ROOT = Path(__file__).resolve().parent.parent
 
 from panel import (brand, checks, db, followup, interchat, message, notify, pacing,
-                   readstatus, report, replies, warmup, watchdog)
+                   readstatus, report, replies, unique, warmup, watchdog)
 
 
 def resolve_attachment(value: str) -> str | None:
@@ -309,8 +309,19 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     template_body = campaign["template"]
     sender_name = acc["my_name"]
 
+    chosen: dict[str, int] = {"variant": -1}
+
     def compose(his_name: str) -> str:
-        return message.render(template_body, intro, sender_name, his_name)
+        # у каждого аккаунта свой набор вариантов: два аккаунта не отправят
+        # байт-в-байт одинаковый текст
+        pool_names = sorted(a["session_name"] for a in accounts) or [name]
+        text, vidx = unique.pick(name, campaign["id"], template_body, pool_names)
+        chosen["variant"] = vidx
+        body = message.personalise(text, sender_name, his_name)
+        head = message.personalise(message.expand_spintax(intro), sender_name, his_name).strip() if intro else ""
+        if head and not head.endswith((".", "!", "?", ":", "…")):
+            head += ":"
+        return (head + "\n\n" + body).strip() if head else body.strip()
 
     me_id = None if campaign["allow_self"] else pool.me_ids.get(name)
     attachment = resolve_attachment(campaign.get("attachment") or "")
@@ -335,7 +346,10 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
         log(f"⏳ {name}: flood wait {exc.seconds}с — адресат уйдёт с другого аккаунта")
         return "retry"
 
-    db.log_send(campaign["id"], target["username"], name, result.ok, result.reason)
+    db.log_send(campaign["id"], target["username"], name, result.ok, result.reason,
+                variant=chosen["variant"])
+    if result.ok:
+        unique.remember(name, campaign["id"], chosen["variant"])
     db.close_target(campaign["id"], target["recipient_id"],
                     "sent" if result.ok else "failed", result.reason, name)
     db.bump_attempt(campaign["id"], result.ok)

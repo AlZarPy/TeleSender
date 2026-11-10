@@ -13,14 +13,14 @@ acc_br1;socks5://14aa5cdc6e5f4:d33edf54dc@181.215.24.109:12324
 # acc_us5;socks5://CVmxTH:5n62oe@23.229.74.201:8000   # ждёт прокси, старый режет Telegram
 # acc_in1;socks5://6k5V9q:DdN030@168.80.72.48:8000   # ждёт прокси, старый режет Telegram
 # acc_sa1;socks5://RaYr7E:nsV5Zq@186.179.8.90:8000   # ждёт прокси, старый режет Telegram
-acc_pt1;socks5://support0mhx4:5zIaWLYTKm@151.241.39.229:50101
-acc_pt2;socks5://support0mhx4:5zIaWLYTKm@151.241.39.27:50101
-acc_pt3;socks5://support0mhx4:5zIaWLYTKm@151.241.39.166:50101
-acc_pt4;socks5://support0mhx4:5zIaWLYTKm@151.241.39.137:50101
-acc_pt5;socks5://support0mhx4:5zIaWLYTKm@82.140.183.174:50101
-acc_pt6;socks5://support0mhx4:5zIaWLYTKm@151.241.39.147:50101
-acc_pt7;socks5://support0mhx4:5zIaWLYTKm@151.241.39.153:50101
-acc_pt8;socks5://support0mhx4:5zIaWLYTKm@82.140.183.84:50101
-acc_pt9;socks5://support0mhx4:5zIaWLYTKm@151.241.39.43:50101
-acc_pt10;socks5://support0mhx4:5zIaWLYTKm@82.140.183.65:50101
-acc_pt11;socks5://14af0e607b39a:60e2a0c1d8@171.33.240.49:12324
+pechkin01;socks5://support0mhx4:5zIaWLYTKm@151.241.39.229:50101
+pechkin02;socks5://support0mhx4:5zIaWLYTKm@151.241.39.27:50101
+pechkin03;socks5://support0mhx4:5zIaWLYTKm@151.241.39.166:50101
+pechkin04;socks5://support0mhx4:5zIaWLYTKm@151.241.39.137:50101
+pechkin05;socks5://support0mhx4:5zIaWLYTKm@82.140.183.174:50101
+pechkin06;socks5://support0mhx4:5zIaWLYTKm@151.241.39.147:50101
+pechkin07;socks5://support0mhx4:5zIaWLYTKm@151.241.39.153:50101
+pechkin08;socks5://support0mhx4:5zIaWLYTKm@82.140.183.84:50101
+pechkin09;socks5://support0mhx4:5zIaWLYTKm@151.241.39.43:50101
+pechkin10;socks5://support0mhx4:5zIaWLYTKm@82.140.183.65:50101
+pechkin11;socks5://14af0e607b39a:60e2a0c1d8@171.33.240.49:12324

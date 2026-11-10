@@ -72,6 +72,77 @@ def eta_minutes(per_minute: float | None = None) -> float | None:
     return round(left / rate, 1)
 
 
+# Нормы, по которым судят о работе рассылки: (метрика, границы, что значит)
+NORMS = {
+    "delivery": (0.95, "доставка"),
+    "read": (0.40, "прочтение"),
+    "reply": (0.08, "ответ"),
+    "complaints": (0.01, "жалобы", True),   # True = чем меньше, тем лучше
+    "survival": (0.80, "выживание пула"),
+}
+
+
+def quality(days: int = 7) -> list[dict]:
+    """Пять цифр рядом с нормой: доставка, прочтение, ответ, жалобы, выживание."""
+    sent_row = db.q1("""SELECT COUNT(*) total, SUM(ok) ok FROM sends
+                        WHERE ts >= datetime('now','localtime', ?)""",
+                     (f"-{days} days",))
+    total = int(sent_row["total"] or 0) if sent_row else 0
+    ok = int(sent_row["ok"] or 0) if sent_row else 0
+
+    read_row = db.q1("""SELECT COUNT(*) c FROM sends
+                        WHERE ts >= datetime('now','localtime', ?) AND read_at<>''""",
+                     (f"-{days} days",))
+    read = int(read_row["c"] if read_row else 0)
+
+    replied_row = db.q1("""SELECT COUNT(*) c FROM sends s JOIN recipients r
+                           ON LOWER(r.username)=LOWER(s.recipient)
+                           WHERE s.ts >= datetime('now','localtime', ?) AND r.replied=1""",
+                        (f"-{days} days",))
+    replied = int(replied_row["c"] if replied_row else 0)
+
+    blocked_row = db.q1("SELECT COUNT(*) c FROM recipients WHERE status<>'active'")
+    blocked = int(blocked_row["c"] if blocked_row else 0)
+
+    # «Выживание» — доля рабочих аккаунтов, которые за 30 дней не ушли в ограничение.
+    # Просто active/total не годится: в базе лежат старые BR/US-аккаунты, снятые с работы
+    # руками, и они портят цифру, не будучи потерянными.
+    acc_row = db.q1("SELECT COUNT(*) total FROM accounts WHERE status='active'")
+    acc_total = int(acc_row["total"] or 0) if acc_row else 0
+    lost_row = db.q1("""SELECT COUNT(DISTINCT account) c FROM events
+                        WHERE kind='spam_block' AND ts >= datetime('now','localtime','-30 days')""")
+    lost = int(lost_row["c"] if lost_row else 0)
+    acc_active = max(0, acc_total - lost)
+
+    def share(a: int, b: int) -> float:
+        return round(a / b, 3) if b else 0.0
+
+    values = {
+        "delivery": share(ok, total),
+        "read": share(read, total),
+        "reply": share(replied, max(total, 1)),
+        "complaints": share(blocked, max(total, 1)),
+        "survival": share(acc_active, acc_total),
+    }
+
+    out = []
+    for key, spec in NORMS.items():
+        norm = spec[0]
+        label = spec[1]
+        inverse = len(spec) > 2 and spec[2]
+        value = values[key]
+        if key in ("delivery", "read", "reply", "complaints") and total < 20:
+            level = "pending"      # мало данных — вывод делать нельзя
+        elif inverse:
+            level = "ok" if value <= norm else "bad"
+        else:
+            level = "ok" if value >= norm else ("pending" if value == 0 else "bad")
+        out.append({"key": key, "label": label, "value": value, "norm": norm,
+                    "level": level, "inverse": inverse,
+                    "text": f"{value:.0%}" if key != "complaints" else f"{value:.1%}"})
+    return out
+
+
 def summary() -> dict:
     hour = window(60)
     return {
@@ -80,6 +151,7 @@ def summary() -> dict:
         "eta_minutes": eta_minutes(hour["per_minute"]),
         "pacing": pacing_state(),
         "accounts": by_account(60),
+        "quality": quality(7),
     }
 
 

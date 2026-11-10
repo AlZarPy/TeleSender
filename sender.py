@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from dataclasses import dataclass
 
 from telethon.errors import (
@@ -22,7 +23,39 @@ PLACEHOLDER_ME = "<МоёИмя>"
 PLACEHOLDER_HIM = "<ЕгоИмя>"
 
 
-def _md_mode(text: str) -> str | None:
+def _typing() -> bool:
+    """Показывать «печатает…» перед первой отправкой. По умолчанию — да."""
+    import os
+
+    return os.getenv("SENDERX_TYPING", "1") not in ("0", "", "off", "false", "no")
+
+
+def _preview() -> bool:
+    """Раскрывать ли предпросмотр ссылки. По умолчанию — нет: лендинг подтягивает
+    чужую картинку и заголовок, в холодном сообщении это выглядит как реклама."""
+    import os
+
+    return os.getenv("SENDERX_LINK_PREVIEW", "0") not in ("0", "", "off", "false", "no")
+
+
+def _render_markup(text: str) -> tuple[str, list | None]:
+    """Разметка → (чистый текст, сущности). Ссылки вида [текст](url) тоже тут.
+
+    Если разбор не удался (в тексте остались ** или ]( ), отправляем как есть:
+    лучше без форматирования, чем с мусорными звёздочками.
+    """
+    from telethon.extensions import markdown
+
+    try:
+        plain, entities = markdown.parse(text)
+    except Exception:  # noqa: BLE001
+        return text, None
+    if "**" in plain or "](" in plain or "__" in plain:
+        return text, None
+    return plain, entities
+
+
+def _link_ok(text: str) -> bool:
     """'md', если разметка Telegram корректна, иначе None — отправим как обычный текст.
 
     Страховка от имён получателей с подчёркиваниями и незакрытых **: без неё
@@ -94,7 +127,9 @@ async def send_one(client, username: str, my_name: str, template: str, me_id: in
         if len(text) > 1024:
             return SendResult(username, False, "caption_long")
         try:
-            await client.send_file(user, attachment, caption=text, parse_mode=_md_mode(text))
+            cap, cap_entities = _render_markup(text)
+            await client.send_file(user, attachment, caption=cap,
+                                   formatting_entities=cap_entities, link_preview=_preview())
         except FloodWaitError as exc:
             raise FloodDetected(exc.seconds, username) from exc
         except UserPrivacyRestrictedError:
@@ -107,8 +142,18 @@ async def send_one(client, username: str, my_name: str, template: str, me_id: in
             return SendResult(username, False, f"error:{type(exc).__name__}")
         return SendResult(username, True)
 
+    if _typing():
+        secs = max(2, min(8, round(len(text) / 12))) + random.uniform(0, 1.5)
+        try:
+            async with client.action(user, "typing"):
+                await asyncio.sleep(secs)
+        except Exception:  # noqa: BLE001 — нет индикатора, но отправить всё равно надо
+            pass
+
+    plain, entities = _render_markup(text)
     try:
-        await client.send_message(user, text, parse_mode=_md_mode(text))
+        await client.send_message(user, plain, formatting_entities=entities,
+                                  link_preview=_preview())
     except FloodWaitError as exc:
         raise FloodDetected(exc.seconds, username) from exc
     except UserPrivacyRestrictedError:

@@ -210,6 +210,8 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
         action = decided(msg.text or "")
         username = (sender.username or f"id{sender.id}").lower()
         stage = stages.update(username, msg.text or "")
+        if stage == "objection":
+            db.event("objection", account, (msg.text or "")[:200])
 
         if db.ab_group_of(username) == "A":
             await mark_read(client, sender, account, username)
@@ -230,6 +232,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
 
         if action == "refuse":
             db.block_recipient(username, True)
+            db.event("refusal", account, (msg.message or "")[:200])
             _mark(account, msg.id, action)
             lines.append(f"{account}: отказ от @{username} — больше не пишем")
             continue

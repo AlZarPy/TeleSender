@@ -131,6 +131,14 @@ CREATE TABLE IF NOT EXISTS dialog_state (
     updated_at TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS used_variants (
+    account      TEXT NOT NULL,
+    campaign_id  INTEGER NOT NULL,
+    variant      INTEGER NOT NULL,
+    used_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY(account, campaign_id, variant)
+);
+
 CREATE TABLE IF NOT EXISTS account_pacing (
     account TEXT PRIMARY KEY,
     next_at REAL NOT NULL DEFAULT 0
@@ -176,10 +184,12 @@ def _migrate() -> None:
             "fail_streak": "INTEGER NOT NULL DEFAULT 0",
             "stopped_reason": "TEXT NOT NULL DEFAULT ''",
             "ab_group": "TEXT NOT NULL DEFAULT ''",
+            "account_group": "TEXT NOT NULL DEFAULT ''",
         },
         "accounts": {
             "warmup_start": "TEXT NOT NULL DEFAULT ''",
             "warmup_days": "INTEGER NOT NULL DEFAULT 7",
+            "grp": "TEXT NOT NULL DEFAULT ''",
         },
         "recipients": {
             "replied": "INTEGER NOT NULL DEFAULT 0",
@@ -187,6 +197,7 @@ def _migrate() -> None:
         },
         "sends": {
             "read_at": "TEXT NOT NULL DEFAULT ''",
+            "variant": "INTEGER NOT NULL DEFAULT -1",
         },
     }
     with connect() as conn:
@@ -355,16 +366,17 @@ def create_campaign(name: str, template: str, recipients: list[str], *,
                     intro: str = "", min_delay: int = 25, max_delay: int = 70,
                     hour_limit: int = 10, window_start: int = 9, window_end: int = 21,
                     allow_self: bool = False, allow_repeat: bool = False,
-                    scheduled_at: str = "", attachment: str = "", ab_group: str = "") -> int:
+                    scheduled_at: str = "", attachment: str = "", ab_group: str = "",
+                    account_group: str = "") -> int:
     with connect() as conn:
         cur = conn.execute(
             """INSERT INTO campaigns(name, template, intro, min_delay, max_delay, hour_limit,
                                      window_start, window_end, allow_self, allow_repeat,
-                                     scheduled_at, attachment, ab_group)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                     scheduled_at, attachment, ab_group, account_group)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (name, template, intro, min_delay, max_delay, hour_limit,
              window_start, window_end, int(allow_self), int(allow_repeat),
-             scheduled_at, attachment, ab_group),
+             scheduled_at, attachment, ab_group, account_group),
         )
         cid = cur.lastrowid or 0
         for username in recipients:
@@ -473,6 +485,15 @@ def release_stale_targets(older_than_sec: int = 900) -> int:
         return cur.rowcount
 
 
+def set_account_group(account: str, grp: str) -> None:
+    execute("UPDATE accounts SET grp=? WHERE session_name=?", (grp, account))
+
+
+def account_group(account: str) -> str:
+    row = q1("SELECT grp FROM accounts WHERE session_name=?", (account,))
+    return (row["grp"] if row else "") or ""
+
+
 def check_set(account: str, kind: str, status: str, detail: str = "") -> None:
     execute("""INSERT INTO account_checks(account, kind, status, detail, checked_at)
                VALUES(?,?,?,?,datetime('now','localtime'))
@@ -544,10 +565,69 @@ def read_stats(minutes: int = 1440) -> dict:
 
 
 def log_send(campaign_id: int, recipient: str, account: str, ok: bool,
-             reason: str = "", msg_id: int = 0) -> None:
-    execute("""INSERT INTO sends(campaign_id, recipient, account, ok, reason, msg_id)
-               VALUES (?,?,?,?,?,?)""",
-            (campaign_id, recipient, account, int(ok), reason, msg_id))
+             reason: str = "", msg_id: int = 0, variant: int = -1) -> None:
+    execute("""INSERT INTO sends(campaign_id, recipient, account, ok, reason, msg_id, variant)
+               VALUES (?,?,?,?,?,?,?)""",
+            (campaign_id, recipient, account, int(ok), reason, msg_id, variant))
+
+
+def variant_taken(account: str, campaign_id: int, variant: int) -> bool:
+    return bool(q1("""SELECT 1 FROM used_variants
+                      WHERE account=? AND campaign_id=? AND variant=?""",
+                   (account, campaign_id, variant)))
+
+
+def mark_variant(account: str, campaign_id: int, variant: int) -> None:
+    execute("""INSERT OR IGNORE INTO used_variants(account, campaign_id, variant)
+               VALUES(?,?,?)""", (account, campaign_id, variant))
+
+
+def variant_stats(campaign_id: int | None = None) -> list[dict]:
+    """Какой вариант текста сколько раз ушёл и сколько дал ответов."""
+    where = "AND s.variant >= 0"
+    params: tuple = ()
+    if campaign_id:
+        where += " AND s.campaign_id=?"
+        params = (campaign_id,)
+    rows = q(f"""SELECT s.variant v, COUNT(*) sent, SUM(s.ok) ok, SUM(s.read_at<>'') read_cnt,
+                        SUM(EXISTS(SELECT 1 FROM recipients r
+                                   WHERE LOWER(r.username)=LOWER(s.recipient) AND r.replied=1)) replied
+                 FROM sends s WHERE 1=1 {where}
+                 GROUP BY s.variant ORDER BY sent DESC""", params)
+    out = []
+    for r in rows:
+        sent = int(r["sent"] or 0)
+        out.append({"variant": int(r["v"]), "sent": sent,
+                    "read": int(r["read_cnt"] or 0), "replied": int(r["replied"] or 0),
+                    "reply_share": round(int(r["replied"] or 0) / sent, 3) if sent else 0.0})
+    return out
+
+
+def objection_stats(days: int = 30) -> list[dict]:
+    """Что чаще всего отвечают: возражения и отказы, сгруппированные по смыслу."""
+    rows = q("""SELECT kind, detail FROM events
+                WHERE kind IN ('objection','refusal')
+                  AND ts >= datetime('now','localtime', ?)""", (f"-{days} days",))
+    buckets: dict[str, int] = {}
+    marks = {
+        "далеко": ("далек", "город", "не в москв"),
+        "нет времени": ("врем", "занят", "позже", "подумаю"),
+        "дорого": ("дорог", "цена", "стоим", "плат"),
+        "не моя тема": ("не интерес", "не наше", "не подходит", "не надо"),
+        "уже есть": ("уже проход", "уже был", "уже учус", "своё"),
+    }
+    for r in rows:
+        text = (r["detail"] or "").lower()
+        for name, keys in marks.items():
+            if any(k in text for k in keys):
+                buckets[name] = buckets.get(name, 0) + 1
+                break
+        else:
+            key = "отказ без причины" if r["kind"] == "refusal" else "другое"
+            buckets[key] = buckets.get(key, 0) + 1
+    total = sum(buckets.values())
+    return [{"reason": k, "count": v, "share": round(v / total, 3) if total else 0.0}
+            for k, v in sorted(buckets.items(), key=lambda kv: -kv[1])]
 
 
 def set_campaign_status(campaign_id: int, status: str) -> None:

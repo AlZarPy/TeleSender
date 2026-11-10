@@ -1,0 +1,15 @@
+# Прокси для аккаунтов: строка «session_name;socks5://логин:пароль@хост:порт»
+# Один прокси — один аккаунт. Бразилия и США куплены 15.11, срок 6 дней.
+acc_br1;socks5://CtYdyD:NuQwdM@196.18.180.162:8000
+acc_br2;socks5://CtYdyD:NuQwdM@196.18.183.117:8000
+acc_br3;socks5://CtYdyD:NuQwdM@196.18.181.182:8000
+acc_br4;socks5://CtYdyD:NuQwdM@196.18.181.129:8000
+acc_br5;socks5://CtYdyD:NuQwdM@196.18.180.161:8000
+acc_br6;socks5://CtYdyD:NuQwdM@196.18.183.56:8000
+acc_us1;socks5://CVmxTH:5n62oe@23.229.58.176:8000
+acc_us2;socks5://CVmxTH:5n62oe@209.127.51.167:8000
+acc_us3;socks5://CVmxTH:5n62oe@209.127.51.208:8000
+acc_us4;socks5://CVmxTH:5n62oe@209.127.51.79:8000
+acc_us5;socks5://CVmxTH:5n62oe@23.229.74.201:8000
+acc_in1;socks5://6k5V9q:DdN030@168.80.72.48:8000
+acc_sa1;socks5://RaYr7E:nsV5Zq@186.179.8.90:8000

@@ -45,6 +45,39 @@ def variants_count(text: str) -> int:
     return total
 
 
+def variants_list(text: str, cap: int = 240) -> list[str]:
+    """Все уникальные тексты, которые можно собрать из шаблона (с ограничением).
+
+    Нужен для того, чтобы закрепить за аккаунтом свой набор вариантов: тогда два
+    аккаунта не отправят байт-в-байт одинаковую фразу.
+    """
+    import itertools
+
+    blocks = _SPINTAX.findall(text)
+    if not blocks:
+        return [text]
+    options = [block.split("|") for block in blocks]
+    total = 1
+    for opt in options:
+        total *= max(1, len(opt))
+    if total > cap:
+        # слишком много комбинаций: перебираем не весь декартов продукт,
+        # а cap срезов через равномерный шаг
+        out: list[str] = []
+        for i in range(cap):
+            rng = random.Random(i)
+            out.append(expand_spintax(text, rng))
+        return list(dict.fromkeys(out))
+
+    out = []
+    for combo in itertools.product(*options):
+        piece = text
+        for block, choice in zip(blocks, combo):
+            piece = piece.replace("{" + block + "}", choice, 1)
+        out.append(piece)
+    return list(dict.fromkeys(out))
+
+
 def personalise(text: str, my_name: str, his_name: str) -> str:
     name = (his_name or "").strip() or "друг"
     return text.replace(PH_ME, my_name).replace(PH_HIM, name)

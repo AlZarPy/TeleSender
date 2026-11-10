@@ -59,6 +59,14 @@ def healthz():
         ab = db.ab_stats()
     except Exception as exc:  # noqa: BLE001
         ab = {"error": f"{type(exc).__name__}: {exc}"}
+    try:
+        texts = db.variant_stats()
+    except Exception as exc:  # noqa: BLE001
+        texts = {"error": f"{type(exc).__name__}: {exc}"}
+    try:
+        objections = db.objection_stats(30)
+    except Exception as exc:  # noqa: BLE001
+        objections = {"error": f"{type(exc).__name__}: {exc}"}
     return {
         "ok": True,
         "build": BUILD if "BUILD" in globals() else "dev",
@@ -66,6 +74,8 @@ def healthz():
         "db": funnel,
         "speed": speed,
         "ab": ab,
+        "texts": texts,
+        "objections": objections,
     }
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
@@ -255,7 +265,8 @@ def dashboard(request: Request, user: str = Depends(current_user)):
     recent = [dict(r) for r in db.q("SELECT * FROM sends ORDER BY id DESC LIMIT 15")]
     events = [dict(r) for r in db.q("SELECT * FROM events ORDER BY id DESC LIMIT 10")]
     return render(request, "dashboard.html", accounts=checks.summary(health.with_health(accounts)),
-                  campaigns=campaigns,
+                  quality=metrics.quality(7), campaigns=campaigns,
+                  texts=db.variant_stats(), objections=db.objection_stats(30),
                   funnel=db.global_funnel(),
                   totals=totals, recent=recent, events=events)
 
