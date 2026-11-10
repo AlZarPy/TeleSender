@@ -36,8 +36,8 @@ from sender import FloodDetected, is_transient, send_one
 
 ROOT = Path(__file__).resolve().parent.parent
 
-from panel import (brand, db, followup, interchat, message, notify, pacing,
-                   report, replies, warmup, watchdog)
+from panel import (brand, checks, db, followup, interchat, message, notify, pacing,
+                   readstatus, report, replies, warmup, watchdog)
 
 
 def resolve_attachment(value: str) -> str | None:
@@ -454,6 +454,22 @@ async def main_async(args) -> int:
                         log(f"💬 ответили: {', '.join('@' + u for u in fresh)}")
                 except Exception as exc:  # noqa: BLE001
                     db.event("reply_scan_error", "", str(exc)[:120])
+
+                try:
+                    read_now = await asyncio.wait_for(
+                        readstatus.tick(pool, live_accounts()), timeout=600)
+                    for line in read_now:
+                        log(f"👁 {line}")
+                except Exception as exc:  # noqa: BLE001
+                    db.event("read_scan_error", "", str(exc)[:120])
+
+                try:
+                    checked = await asyncio.wait_for(
+                        checks.tick(pool, live_accounts()), timeout=900)
+                    for line in checked:
+                        log(f"🩺 {line}")
+                except Exception as exc:  # noqa: BLE001
+                    db.event("check_error", "", str(exc)[:120])
 
                 try:
                     answered = await asyncio.wait_for(

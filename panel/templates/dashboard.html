@@ -21,7 +21,7 @@
 <h2>Аккаунты</h2>
 <div class="tablewrap">
 <table>
-  <tr><th>аккаунт</th><th>статус</th><th>здоровье</th><th>сегодня</th><th>квота</th><th>осталось</th><th>прокси</th></tr>
+  <tr><th>аккаунт</th><th>статус</th><th>сеть</th><th>@SpamBot</th><th>здоровье</th><th>сегодня</th><th>квота</th><th>осталось</th><th>прокси</th></tr>
   {% for a in accounts %}
   <tr>
     <td>{{ a.session_name }}</td>
@@ -32,6 +32,18 @@
       {% elif a.warmup_day and a.warmup_day <= a.warmup_days %}<span class="pill pending">прогрев, день {{ a.warmup_day }}</span>
       {% else %}<span class="pill ok">готов</span>{% endif %}
     </td>
+    <td class="small">
+      {% if a.online == 'онлайн' %}<span class="pill ok">в сети</span>
+      {% elif a.online %}<span class="muted">{{ a.online }}{% if a.online_at %} · {{ a.online_at }}{% endif %}</span>
+      {% else %}<span class="muted">—</span>{% endif %}
+    </td>
+    <td class="small">
+      {% if a.spam == 'чисто' %}<span class="pill ok">чисто</span>
+      {% elif a.spam == 'ОГРАНИЧЕН' %}<span class="pill bad" title="{{ a.spam_note }}">ограничен</span>
+      {% elif a.spam %}<span class="pill pending" title="{{ a.spam_note }}">{{ a.spam }}</span>
+      {% else %}<span class="muted">не проверяли</span>{% endif %}
+      {% if a.spam_at %}<div class="muted" style="font-size:.85em">{{ a.spam_at }}</div>{% endif %}
+    </td>
     <td><span class="pill {{ a.health.level }}" title="{% for lvl, txt in a.health.reasons %}{{ txt }}{% if not loop.last %}; {% endif %}{% endfor %}">
       {{ a.health.score }} · {{ a.health.label }}</span></td>
     <td>{{ a.sent_today }}</td>
@@ -40,7 +52,7 @@
     <td class="small muted">{{ a.proxy.split('@')[-1] if a.proxy else 'напрямую' }}</td>
   </tr>
   {% endfor %}
-  {% if not accounts %}<tr><td colspan="7" class="muted">нет аккаунтов в config.txt</td></tr>{% endif %}
+  {% if not accounts %}<tr><td colspan="9" class="muted">нет аккаунтов в config.txt</td></tr>{% endif %}
 </table>
 </div>
 

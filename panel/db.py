@@ -114,6 +114,15 @@ CREATE TABLE IF NOT EXISTS followup_cooldown (
     last_at  REAL NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS account_checks (
+    account    TEXT NOT NULL,
+    kind       TEXT NOT NULL,           -- online | spam
+    status     TEXT NOT NULL DEFAULT '',
+    detail     TEXT NOT NULL DEFAULT '',
+    checked_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY(account, kind)
+);
+
 CREATE TABLE IF NOT EXISTS dialog_state (
     username   TEXT PRIMARY KEY,
     stage      TEXT NOT NULL DEFAULT 'intro',
@@ -174,6 +183,9 @@ def _migrate() -> None:
         "recipients": {
             "replied": "INTEGER NOT NULL DEFAULT 0",
             "last_reply": "TEXT NOT NULL DEFAULT ''",
+        },
+        "sends": {
+            "read_at": "TEXT NOT NULL DEFAULT ''",
         },
     }
     with connect() as conn:
@@ -418,6 +430,28 @@ def release_stale_targets(older_than_sec: int = 900) -> int:
         return cur.rowcount
 
 
+def check_set(account: str, kind: str, status: str, detail: str = "") -> None:
+    execute("""INSERT INTO account_checks(account, kind, status, detail, checked_at)
+               VALUES(?,?,?,?,datetime('now','localtime'))
+               ON CONFLICT(account, kind) DO UPDATE SET status=excluded.status,
+                   detail=excluded.detail, checked_at=excluded.checked_at""",
+            (account, kind, status, detail))
+
+
+def check_get(account: str, kind: str):
+    return q1("SELECT status, detail, checked_at FROM account_checks WHERE account=? AND kind=?",
+              (account, kind))
+
+
+def checks_fresh(account: str, kind: str, hours: float = 20.0) -> bool:
+    """Проверку делали недавно — повторно не дёргаем."""
+    row = check_get(account, kind)
+    if not row:
+        return False
+    age = q1("SELECT (julianday('now','localtime') - julianday(?)) * 24 AS hours", (row["checked_at"],))
+    return bool(age) and float(age["hours"] or 99) < hours
+
+
 def pacing_next_at(account: str) -> float:
     row = q1("SELECT next_at FROM account_pacing WHERE account=?", (account,))
     return float(row["next_at"]) if row else 0.0
@@ -435,6 +469,28 @@ def close_target(campaign_id: int, recipient_id: int, state: str, reason: str = 
                SET state=?, reason=?, account=?, msg_id=?, updated_at=datetime('now','localtime')
                WHERE campaign_id=? AND recipient_id=?""",
             (state, reason, account, msg_id, campaign_id, recipient_id))
+
+
+def mark_read(message_ids: dict[str, list[int]], account: str) -> int:
+    """Помечает прочитанными отправленные сообщения: {получатель: [msg_id, ...]}."""
+    total = 0
+    for recipient, ids in message_ids.items():
+        for msg_id in ids:
+            cur = execute("""UPDATE sends SET read_at=datetime('now','localtime')
+                             WHERE account=? AND recipient=? AND msg_id=? AND read_at=''""",
+                          (account, recipient, msg_id))
+            total += cur
+    return total
+
+
+def read_stats(minutes: int = 1440) -> dict:
+    row = q1("""SELECT COUNT(*) total, SUM(read_at<>'') read_cnt, SUM(ok) delivered
+                FROM sends WHERE ts >= datetime('now','localtime', ?)""",
+             (f"-{minutes} minutes",))
+    total = int(row["total"] or 0) if row else 0
+    read_cnt = int(row["read_cnt"] or 0) if row else 0
+    return {"sent": total, "read": read_cnt,
+            "read_share": round(read_cnt / total, 3) if total else 0.0}
 
 
 def log_send(campaign_id: int, recipient: str, account: str, ok: bool,

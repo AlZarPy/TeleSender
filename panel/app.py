@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from config_loader import ConfigError, load_config_from_txt
 from csv_loader import normalise
 
-from panel import brand, db, health, message, metrics, synonyms, watchdog
+from panel import brand, checks, db, health, message, metrics, synonyms, watchdog
 
 PANEL_NAME = brand.PANEL
 COOKIE = "pochtamt"
@@ -249,7 +249,8 @@ def dashboard(request: Request, user: str = Depends(current_user)):
     totals = {k: ((totals_row[k] if totals_row else 0) or 0) for k in ("ok", "failed", "total")}
     recent = [dict(r) for r in db.q("SELECT * FROM sends ORDER BY id DESC LIMIT 15")]
     events = [dict(r) for r in db.q("SELECT * FROM events ORDER BY id DESC LIMIT 10")]
-    return render(request, "dashboard.html", accounts=health.with_health(accounts), campaigns=campaigns,
+    return render(request, "dashboard.html", accounts=checks.summary(health.with_health(accounts)),
+                  campaigns=campaigns,
                   funnel=db.global_funnel(),
                   totals=totals, recent=recent, events=events)
 
