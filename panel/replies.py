@@ -49,6 +49,9 @@ async def scan_pool(pool, accounts: list[dict], limit: int = 30) -> list[str]:
     for acc in accounts:
         if acc["status"] != "active":
             continue
+        if not acc.get("proxy"):
+            # без прокси подключение запрещено — молча пропускаем, чтобы не засорять журнал
+            continue
         try:
             client = await pool.get(acc["session_name"])
             found = await scan_client(client, limit)

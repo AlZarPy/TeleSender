@@ -73,6 +73,8 @@ class Pool:
         self.failures: dict[str, int] = {}
         self.paused_until: dict[str, float] = {}
         self.last_used: dict[str, float] = {}
+        # провайдер прокси ограничивает число одновременных соединений на логин
+        self._connect_slot = asyncio.Semaphore(int(os.environ.get("SENDERX_CONNECT_LIMIT", "3")))
 
     def _wait_left(self, name: str) -> float:
         return max(0.0, self.paused_until.get(name, 0.0) - time.time())
@@ -86,8 +88,13 @@ class Pool:
 
     async def get(self, name: str) -> TelegramClient:
         if name in self.clients:
-            self.last_used[name] = time.time()
-            return self.clients[name]
+            client = self.clients[name]
+            # клиент мог отвалиться по таймауту прокси — тогда поднимаем заново
+            if client.is_connected():
+                self.last_used[name] = time.time()
+                return client
+            self.clients.pop(name, None)
+            self.me_ids.pop(name, None)
 
         wait = self._wait_left(name)
         if wait > 0:
@@ -109,8 +116,12 @@ class Pool:
                                 connection_retries=1, request_retries=2,
                                 auto_reconnect=False, timeout=30, **options)
         try:
-            await client.connect()
-            if not await client.is_user_authorized():
+            # Провайдер прокси держит лишь несколько одновременных соединений на
+            # один логин, поэтому подключаемся не больше чем по CONNECT_LIMIT сразу
+            async with self._connect_slot:
+                await client.connect()
+                ok = await client.is_user_authorized()
+            if not ok:
                 await client.disconnect()
                 raise PermissionError(f"{name}: сессия не авторизована")
             me = await client.get_me()

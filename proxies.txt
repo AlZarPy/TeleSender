@@ -1,0 +1,26 @@
+# Прокси для аккаунтов: строка «session_name;socks5://логин:пароль@хост:порт»
+# Один прокси — один аккаунт. Бразилия и США куплены 15.11, срок 6 дней.
+acc_br1;socks5://14aa5cdc6e5f4:d33edf54dc@181.215.24.109:12324
+# acc_br2;socks5://CtYdyD:NuQwdM@196.18.183.117:8000   # ждёт прокси, старый режет Telegram
+# acc_br3;socks5://CtYdyD:NuQwdM@196.18.181.182:8000   # ждёт прокси, старый режет Telegram
+# acc_br4;socks5://CtYdyD:NuQwdM@196.18.181.129:8000   # ждёт прокси, старый режет Telegram
+# acc_br5;socks5://CtYdyD:NuQwdM@196.18.180.161:8000   # ждёт прокси, старый режет Telegram
+# acc_br6;socks5://CtYdyD:NuQwdM@196.18.183.56:8000   # ждёт прокси, старый режет Telegram
+# acc_us1;socks5://CVmxTH:5n62oe@23.229.58.176:8000   # ждёт прокси, старый режет Telegram
+# acc_us2;socks5://CVmxTH:5n62oe@209.127.51.167:8000   # ждёт прокси, старый режет Telegram
+# acc_us3;socks5://CVmxTH:5n62oe@209.127.51.208:8000   # ждёт прокси, старый режет Telegram
+# acc_us4;socks5://CVmxTH:5n62oe@209.127.51.79:8000   # ждёт прокси, старый режет Telegram
+# acc_us5;socks5://CVmxTH:5n62oe@23.229.74.201:8000   # ждёт прокси, старый режет Telegram
+# acc_in1;socks5://6k5V9q:DdN030@168.80.72.48:8000   # ждёт прокси, старый режет Telegram
+# acc_sa1;socks5://RaYr7E:nsV5Zq@186.179.8.90:8000   # ждёт прокси, старый режет Telegram
+acc_pt1;socks5://support0mhx4:5zIaWLYTKm@151.241.39.229:50101
+acc_pt2;socks5://support0mhx4:5zIaWLYTKm@151.241.39.27:50101
+acc_pt3;socks5://support0mhx4:5zIaWLYTKm@151.241.39.166:50101
+acc_pt4;socks5://support0mhx4:5zIaWLYTKm@151.241.39.137:50101
+acc_pt5;socks5://support0mhx4:5zIaWLYTKm@82.140.183.174:50101
+acc_pt6;socks5://support0mhx4:5zIaWLYTKm@151.241.39.147:50101
+acc_pt7;socks5://support0mhx4:5zIaWLYTKm@151.241.39.153:50101
+acc_pt8;socks5://support0mhx4:5zIaWLYTKm@82.140.183.84:50101
+acc_pt9;socks5://support0mhx4:5zIaWLYTKm@151.241.39.43:50101
+acc_pt10;socks5://support0mhx4:5zIaWLYTKm@82.140.183.65:50101
+acc_pt11;socks5://14af0e607b39a:60e2a0c1d8@171.33.240.49:12324

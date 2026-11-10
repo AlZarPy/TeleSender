@@ -265,6 +265,8 @@ def set_account(name: str, daily_limit: int | None = None, status: str | None = 
                           ("paused_until", paused_until), ("note", note),
                           ("warmup_start", warmup_start), ("warmup_days", warmup_days)):
         if value is not None:
+            # пустая строка для warmup_start — это явная команда «убрать из прогрева»,
+            # колонка объявлена NOT NULL, поэтому пишем "" а не NULL
             execute(f"UPDATE accounts SET {column}=? WHERE session_name=?", (value, name))
 
 
