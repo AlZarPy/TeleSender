@@ -108,6 +108,11 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS followup_cooldown (
+    username TEXT PRIMARY KEY,
+    last_at  REAL NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS account_pacing (
     account TEXT PRIMARY KEY,
     next_at REAL NOT NULL DEFAULT 0

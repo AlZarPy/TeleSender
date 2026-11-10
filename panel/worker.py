@@ -245,6 +245,7 @@ async def send_with_retry(pool: Pool, name: str, target: dict, caller) -> object
 
 
 PARALLEL = int(os.getenv("SENDERX_PARALLEL", "3"))
+DRY_RUN = False
 
 
 async def run_batch(pool: Pool, campaign: dict, accounts: list[dict],
@@ -314,6 +315,13 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     me_id = None if campaign["allow_self"] else pool.me_ids.get(name)
     attachment = resolve_attachment(campaign.get("attachment") or "")
 
+    if DRY_RUN:
+        preview = compose(target["first_name"] or "")
+        db.close_target(campaign["id"], target["recipient_id"], "pending")
+        log(f"[dry] {name} → @{target['username']} · {len(preview)} симв. · "
+            f"{preview.splitlines()[0][:60]}")
+        return "dry"
+
     async def _do(client):
         return await send_one(client, target["username"], sender_name, template_body, me_id,
                               template_fn=compose, attachment=attachment)
@@ -351,6 +359,8 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
 
 
 async def main_async(args) -> int:
+    global DRY_RUN
+    DRY_RUN = bool(getattr(args, "dry_run", False))
     db.init()
     accounts_cfg = load_config_from_txt(args.config, quiet=True)
     if not accounts_cfg:
@@ -520,6 +530,8 @@ async def main_async(args) -> int:
                 await asyncio.sleep(5)
             elif state == "skipped":
                 await asyncio.sleep(1)
+            elif state == "dry":
+                await asyncio.sleep(1)
             else:
                 # интервал держит pacing на каждом аккаунте, здесь только
                 # небольшая пауза между батчами
@@ -550,6 +562,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Воркер рассылки «Почтамт»")
     parser.add_argument("--once", action="store_true", help="одна отправка и выход (тест)")
     parser.add_argument("--config", default=None, help="файл аккаунтов")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="ничего не отправлять: показать, кому и что ушло бы")
     args = parser.parse_args()
 
     released = db.release_stale_targets(900)

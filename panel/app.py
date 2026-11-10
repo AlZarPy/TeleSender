@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from config_loader import ConfigError, load_config_from_txt
 from csv_loader import normalise
 
-from panel import brand, db, health, message, synonyms, watchdog
+from panel import brand, db, health, message, metrics, synonyms, watchdog
 
 PANEL_NAME = brand.PANEL
 COOKIE = "pochtamt"
@@ -48,14 +48,19 @@ async def no_stale_pages(request: Request, call_next):
 
 @app.get("/healthz", response_class=JSONResponse)
 def healthz():
-    """Быстрая проверка здоровья: версия, база, воркер."""
+    """Быстрая проверка здоровья: версия, база, воркер, скорость и очередь."""
     alive, worker = db.worker_alive()
     funnel = db.global_funnel()
+    try:
+        speed = metrics.summary()
+    except Exception as exc:  # noqa: BLE001
+        speed = {"error": f"{type(exc).__name__}: {exc}"}
     return {
         "ok": True,
         "build": BUILD if "BUILD" in globals() else "dev",
         "worker": {"alive": alive, "state": worker.get("state") if worker else None},
         "db": funnel,
+        "speed": speed,
     }
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
