@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
 import sqlite3
 import time
 from pathlib import Path
@@ -185,6 +186,24 @@ def _migrate() -> None:
 
 # ── прогрев (обкатка) ───────────────────────────────────────────────────────
 WARMUP_CURVE = (15, 15, 20, 20, 25, 30, 30)  # потолок по дням, дальше — дневная квота
+
+
+WARMUP_CUTOFF_HOUR = 18   # позже этого часа день старта прогрева не засчитываем
+
+
+def warmup_start_now(now: "datetime | None" = None) -> str:
+    """С какой даты считать прогрев для аккаунта, добавленного прямо сейчас.
+
+    Если добавляем вечером, вечер «пустым» днём прогрева считать нельзя: иначе
+    утром аккаунт уже числится вторым днём и получает право писать незнакомым,
+    не прожив ни одного дня переписки.
+    """
+    from datetime import date, datetime as _dt
+
+    now = now or _dt.now()
+    if now.hour >= WARMUP_CUTOFF_HOUR:
+        return (now.date() + timedelta(days=1)).isoformat()
+    return now.date().isoformat()
 
 
 def warmup_day(warmup_start: str, today: str | None = None) -> int:
