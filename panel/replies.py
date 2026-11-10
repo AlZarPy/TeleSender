@@ -44,6 +44,12 @@ async def scan_client(client, limit: int = 30) -> list[dict]:
                 seconds = getattr(getattr(last, "voice", None), "duration", None)
                 head = f"[голосовое {seconds} с] " if seconds else "[голосовое] "
                 text = head + heard
+        if not text:
+            from panel import vision
+
+            seen = await vision.describe_message(client, last)
+            if seen:
+                text = seen
         found.append({"username": username, "when": when, "text": text})
     return found
 
