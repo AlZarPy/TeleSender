@@ -114,6 +114,14 @@ CREATE TABLE IF NOT EXISTS followup_cooldown (
     last_at  REAL NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS dialog_state (
+    username   TEXT PRIMARY KEY,
+    stage      TEXT NOT NULL DEFAULT 'intro',
+    tags       TEXT NOT NULL DEFAULT '',
+    evidence   TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS account_pacing (
     account TEXT PRIMARY KEY,
     next_at REAL NOT NULL DEFAULT 0

@@ -43,18 +43,18 @@ class FakeClient:
         self._send_error = send_error
         self._entity_error = entity_error
         self.sent: list[tuple[object, str]] = []
-        self.parse_modes: list[object] = []
+        self.entities: list[object] = []
 
     async def get_entity(self, username):
         if self._entity_error:
             raise self._entity_error
         return self._entity
 
-    async def send_message(self, user, text, parse_mode=None):
+    async def send_message(self, user, text, formatting_entities=None, link_preview=None):
         if self._send_error:
             raise self._send_error
         self.sent.append((user, text))
-        self.parse_modes.append(parse_mode)
+        self.entities.append(formatting_entities)
 
 
 async def tests() -> None:
@@ -66,7 +66,14 @@ async def tests() -> None:
     check("успешная отправка", result.ok and result.reason == "")
     check("шаблон отрендерен", bool(client.sent) and client.sent[0][1] == "Привет, Иван! Я Аня.",
           str(client.sent))
-    check("разметка передаётся как md", client.parse_modes == ["md"], str(client.parse_modes))
+    check("без разметки сущностей нет", not (client.entities[0] or []), str(client.entities))
+
+    marked = FakeClient(entity=user)
+    await send_one(marked, "ivan", "Аня", "Это **жирным** и __курсивом__.", me_id=1)
+    kinds = [type(e).__name__ for e in (marked.entities[0] or [])]
+    check("разметка превращается в сущности", "MessageEntityBold" in kinds and "MessageEntityItalic" in kinds,
+          str(kinds))
+    check("звёздочек в тексте не осталось", "**" not in marked.sent[0][1], marked.sent[0][1])
 
     self_client = FakeClient(entity=SimpleNamespace(id=1, first_name="Я"))
     result = await send_one(self_client, "me", "Аня", "x", me_id=1)

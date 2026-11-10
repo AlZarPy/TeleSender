@@ -97,6 +97,14 @@ CHAT_FALLBACK = ("Понял. Скину ссылку на группу школ
                  "а по вопросам отвечу тут: ")
 
 
+def _stage_note(stage: str) -> str:
+    if not stage:
+        return ""
+    from . import stages
+
+    return stages.block(stage)
+
+
 def context(history: list[dict]) -> list[dict]:
     """Последние реплики диалога в пределах лимита знаков. Старое отбрасываем."""
     tail = history[-MEMORY_TURNS:]
@@ -111,7 +119,8 @@ def context(history: list[dict]) -> list[dict]:
     return kept
 
 
-def compose(history: list[dict], account_name: str, attempts: int = 2) -> str | None:
+def compose(history: list[dict], account_name: str, attempts: int = 2,
+            stage: str = "") -> str | None:
     """history = [{'who': 'them'|'us', 'text': str}, ...], последняя — входящая."""
     if not _api_key():
         return None
@@ -140,7 +149,7 @@ def compose(history: list[dict], account_name: str, attempts: int = 2) -> str | 
     text = _clean(text)
     if not text or BANNED.search(text):
         if attempts > 1:
-            return compose(history, account_name, attempts - 1)
+            return compose(history, account_name, attempts - 1, stage=stage)
         return None
     return text
 

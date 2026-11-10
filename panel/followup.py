@@ -12,7 +12,7 @@ from pathlib import Path
 
 from telethon.tl.types import User
 
-from . import db, salesperson
+from . import db, salesperson, stages
 
 POSTER = Path("media/poster-terra.jpg")
 
@@ -148,12 +148,18 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             continue
         action = decided(msg.text or "")
         username = (sender.username or f"id{sender.id}").lower()
+        stage = stages.update(username, msg.text or "")
+
         if action != "silence" and not allowed(username):
             _mark(account, msg.id, "skipped")
             continue
         if action != "silence" and cooling(username):
             _mark(account, msg.id, "cooling")
             db.event("followup_cooling", account, f"@{username} — недавно отвечали")
+            continue
+
+        if stage == "end":
+            _mark(account, msg.id, "stage_end")
             continue
 
         if action == "refuse":
@@ -193,7 +199,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             except Exception:  # noqa: BLE001
                 history = [{"who": "them", "text": msg.text or ""}]
 
-            reply = salesperson.compose(history, account)
+            reply = salesperson.compose(history, account, stage=stage)
             if not reply:  # модель не ответила — держим диалог простой фразой
                 reply = salesperson.CHAT_FALLBACK + f"https://t.me/+{INVITE.get(account, '')}"
             try:
@@ -240,6 +246,8 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
 
         _mark(account, msg.id, action)
         mark_cooling(username)
+        if action in ("announce", "niche"):
+            stages.mark(username, "solution")
         db.event("followup", account, f"{action} → @{username}")
         lines.append(f"{account}: ответ {action} для @{username}")
     return lines
