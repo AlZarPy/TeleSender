@@ -60,6 +60,14 @@ def main() -> int:
         got = followup.decided(text)
         check(f"«{text}» → {want}", got == want, f"получилось {got}")
 
+    print("пауза перед ответом")
+    import random as _rnd
+    delays = [followup.reply_delay(_rnd.Random(s)) for s in range(300)]
+    check("пауза не меньше 20 с", min(delays) >= 20, f"минимум {min(delays)}")
+    check("пауза не больше 300 с", max(delays) <= 300, f"максимум {max(delays)}")
+    check("пауза не одинаковая", len(set(delays)) > 30, f"уникальных {len(set(delays))}")
+    check("бывают длинные паузы", max(delays) > 120, f"максимум {max(delays)}")
+
     print("\nкулдаун: один ответ на диалог")
     db.upsert_recipients([("client1", "Клиент", "")])
     check("до ответа не в кулдауне", not followup.cooling("client1"))

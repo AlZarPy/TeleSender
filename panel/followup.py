@@ -6,6 +6,9 @@
 """
 from __future__ import annotations
 
+import asyncio
+import os
+import random
 import re
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +18,29 @@ from telethon.tl.types import User
 from . import db, salesperson, stages
 
 POSTER = Path("media/poster-terra.jpg")
+
+# Пауза перед ответом: человек не отвечает через секунду. Ровный интервал тоже
+# подозрителен, поэтому разброс большой, а иногда ответ «задерживается».
+REPLY_DELAY = (20, 90)
+LONG_DELAY = (120, 300)
+LONG_CHANCE = 0.08
+
+
+def reply_delay(rng: random.Random | None = None) -> int:
+    rng = rng or random.Random()
+    delay = rng.randint(*REPLY_DELAY)
+    if rng.random() < LONG_CHANCE:
+        delay = rng.randint(*LONG_DELAY)
+    cap = int(os.getenv("SENDERX_REPLY_DELAY_MAX", "300"))
+    return max(0, min(delay, cap))
+
+
+async def pause_before_reply(account: str, username: str) -> int:
+    delay = reply_delay()
+    if delay:
+        await asyncio.sleep(delay)
+    db.event("reply_delay", account, f"@{username}: пауза {delay} с")
+    return delay
 
 # инвайт-ссылка на аккаунт: та же, что стоит в описании
 INVITE = {
@@ -179,6 +205,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
 
             if salesperson.needs_human(msg.text or ""):
                 db.event("human_needed", account, f"@{username}: {(msg.text or '')[:120]}")
+                await pause_before_reply(account, username)
                 try:
                     await client.send_message(
                         sender, "Тут лучше голосом — передаю куратору, он вам наберёт.")
@@ -202,6 +229,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             reply = salesperson.compose(history, account, stage=stage)
             if not reply:  # модель не ответила — держим диалог простой фразой
                 reply = salesperson.CHAT_FALLBACK + f"https://t.me/+{INVITE.get(account, '')}"
+            await pause_before_reply(account, username)
             try:
                 await client.send_message(sender, reply)
             except Exception as exc:  # noqa: BLE001
@@ -219,6 +247,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             continue
 
         if action == "niche":
+            await pause_before_reply(account, username)
             try:
                 await client.send_message(
                     sender,
@@ -234,6 +263,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             lines.append(f"{account}: ответ {action} для @{username}")
             continue
 
+        await pause_before_reply(account, username)
         try:
             if action == "announce" and POSTER.exists():
                 await client.send_file(sender, str(POSTER), caption=announce_text(account),

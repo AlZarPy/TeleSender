@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import random
 from datetime import datetime
+from pathlib import Path
 
 from panel import db
 
@@ -92,6 +93,17 @@ def pick_pairs(accounts: list[dict], day: str) -> list[tuple[str, str]]:
                 pool.append(name)
         pool.sort()
     return pairs
+
+
+WARMUP_MEDIA = Path(__file__).resolve().parent.parent / "media" / "warmup"
+
+
+def _pick_media():
+    try:
+        files = [p for p in WARMUP_MEDIA.glob("*.jpg")] + [p for p in WARMUP_MEDIA.glob("*.png")]
+    except OSError:
+        return None
+    return random.choice(files) if files else None
 
 
 async def run_dialog(send, first: str, second: str, sleep=None) -> list[str]:
@@ -172,6 +184,12 @@ async def tick(pool, accounts: list[dict], hour: int | None = None,
                 raise RuntimeError(f"{dst}: телефон не найден в Telegram")
             entity = found.users[0]
 
+        # раз в несколько реплик — фото вместо текста: переписка только текстом
+        # выглядит пустовато, а картинка делает её похожей на живую
+        media = _pick_media()
+        if media is not None and random.random() < 0.25:
+            await client.send_file(entity, str(media), caption=text)
+            return
         await client.send_message(entity, text)
 
     log_lines: list[str] = []
