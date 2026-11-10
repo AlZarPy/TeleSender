@@ -55,12 +55,17 @@ def healthz():
         speed = metrics.summary()
     except Exception as exc:  # noqa: BLE001
         speed = {"error": f"{type(exc).__name__}: {exc}"}
+    try:
+        ab = db.ab_stats()
+    except Exception as exc:  # noqa: BLE001
+        ab = {"error": f"{type(exc).__name__}: {exc}"}
     return {
         "ok": True,
         "build": BUILD if "BUILD" in globals() else "dev",
         "worker": {"alive": alive, "state": worker.get("state") if worker else None},
         "db": funnel,
         "speed": speed,
+        "ab": ab,
     }
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")

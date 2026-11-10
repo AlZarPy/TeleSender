@@ -175,6 +175,7 @@ def _migrate() -> None:
             "attempts": "INTEGER NOT NULL DEFAULT 0",
             "fail_streak": "INTEGER NOT NULL DEFAULT 0",
             "stopped_reason": "TEXT NOT NULL DEFAULT ''",
+            "ab_group": "TEXT NOT NULL DEFAULT ''",
         },
         "accounts": {
             "warmup_start": "TEXT NOT NULL DEFAULT ''",
@@ -354,16 +355,16 @@ def create_campaign(name: str, template: str, recipients: list[str], *,
                     intro: str = "", min_delay: int = 25, max_delay: int = 70,
                     hour_limit: int = 10, window_start: int = 9, window_end: int = 21,
                     allow_self: bool = False, allow_repeat: bool = False,
-                    scheduled_at: str = "", attachment: str = "") -> int:
+                    scheduled_at: str = "", attachment: str = "", ab_group: str = "") -> int:
     with connect() as conn:
         cur = conn.execute(
             """INSERT INTO campaigns(name, template, intro, min_delay, max_delay, hour_limit,
                                      window_start, window_end, allow_self, allow_repeat,
-                                     scheduled_at, attachment)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                     scheduled_at, attachment, ab_group)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (name, template, intro, min_delay, max_delay, hour_limit,
              window_start, window_end, int(allow_self), int(allow_repeat),
-             scheduled_at, attachment),
+             scheduled_at, attachment, ab_group),
         )
         cid = cur.lastrowid or 0
         for username in recipients:
@@ -375,6 +376,48 @@ def create_campaign(name: str, template: str, recipients: list[str], *,
                 )
         conn.commit()
     return int(cid)
+
+
+def ab_group_of(username: str) -> str:
+    """В какой группе A/B человек: по последней кампании, куда он попал."""
+    row = q1("""SELECT c.ab_group g FROM campaign_targets t
+                JOIN campaigns c ON c.id = t.campaign_id
+                JOIN recipients r ON r.id = t.recipient_id
+                WHERE LOWER(r.username)=LOWER(?) AND c.ab_group<>''
+                ORDER BY t.campaign_id DESC LIMIT 1""", (username,))
+    return (row["g"] if row else "") or ""
+
+
+def ab_stats() -> dict:
+    """Сравнение групп A/B: доставка, прочтение, ответы и отказы."""
+    rows = q("""SELECT c.ab_group grp,
+                       COUNT(t.recipient_id) total,
+                       SUM(t.state='sent') sent,
+                       SUM(t.state='failed') failed,
+                       SUM(t.state='skipped') skipped
+                FROM campaigns c JOIN campaign_targets t ON t.campaign_id = c.id
+                WHERE c.ab_group <> ''
+                GROUP BY c.ab_group""")
+    out: dict[str, dict] = {}
+    for r in rows:
+        grp = r["grp"]
+        sent = int(r["sent"] or 0)
+        read = q1("""SELECT COUNT(*) c FROM sends s JOIN campaigns c ON c.id = s.campaign_id
+                     WHERE c.ab_group=? AND s.read_at<>''""", (grp,))
+        replied = q1("""SELECT COUNT(*) c FROM sends s JOIN campaigns c ON c.id = s.campaign_id
+                        WHERE c.ab_group=? AND s.ok=1 AND s.recipient IN
+                        (SELECT username FROM recipients WHERE replied=1)""", (grp,))
+        out[grp] = {
+            "total": int(r["total"] or 0),
+            "sent": sent,
+            "failed": int(r["failed"] or 0),
+            "skipped": int(r["skipped"] or 0),
+            "read": int(read["c"] if read else 0),
+            "replied": int(replied["c"] if replied else 0),
+            "read_share": round((read["c"] if read else 0) / sent, 3) if sent else 0.0,
+            "reply_share": round((replied["c"] if replied else 0) / sent, 3) if sent else 0.0,
+        }
+    return out
 
 
 def campaign_stats(campaign_id: int) -> dict:

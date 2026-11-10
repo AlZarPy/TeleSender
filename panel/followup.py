@@ -35,6 +35,23 @@ def reply_delay(rng: random.Random | None = None) -> int:
     return max(0, min(delay, cap))
 
 
+async def typing_before_send(client, peer, text: str, account: str = "", username: str = "") -> int:
+    """Показывает «печатает…» столько, сколько заняло бы набрать этот текст.
+
+    Молчаливая отправка — второй по заметности признак бота после мгновенного
+    ответа: живой человек набирает, и собеседник это видит.
+    """
+    length = len(text or "")
+    seconds = max(2, min(9, round(length / 12)))
+    try:
+        async with client.action(peer, "typing"):
+            await asyncio.sleep(seconds)
+    except Exception as exc:  # noqa: BLE001
+        db.event("typing_error", account, f"{type(exc).__name__}: {str(exc)[:60]}")
+        return 0
+    return seconds
+
+
 async def mark_read(client, peer, account: str, username: str) -> None:
     """Отмечает входящее прочитанным: у собеседника появляются две галочки.
 
@@ -194,6 +211,11 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
         username = (sender.username or f"id{sender.id}").lower()
         stage = stages.update(username, msg.text or "")
 
+        if db.ab_group_of(username) == "A":
+            await mark_read(client, sender, account, username)
+            _mark(account, msg.id, "ab_group_a")
+            continue
+
         if action != "silence" and not allowed(username):
             _mark(account, msg.id, "skipped")
             continue
@@ -249,6 +271,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             if not reply:  # модель не ответила — держим диалог простой фразой
                 reply = salesperson.CHAT_FALLBACK + f"https://t.me/+{INVITE.get(account, '')}"
             await ready_to_reply(client, sender, account, username)
+            await typing_before_send(client, sender, reply, account, username)
             try:
                 await client.send_message(sender, reply)
             except Exception as exc:  # noqa: BLE001
@@ -267,6 +290,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
 
         if action == "niche":
             await ready_to_reply(client, sender, account, username)
+            await typing_before_send(client, sender, explain_text(), account, username)
             try:
                 await client.send_message(
                     sender,
@@ -283,6 +307,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             continue
 
         await ready_to_reply(client, sender, account, username)
+        await typing_before_send(client, sender, announce_text(account), account, username)
         try:
             if action == "announce" and POSTER.exists():
                 await client.send_file(sender, str(POSTER), caption=announce_text(account),
