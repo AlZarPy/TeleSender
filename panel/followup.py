@@ -35,6 +35,24 @@ def reply_delay(rng: random.Random | None = None) -> int:
     return max(0, min(delay, cap))
 
 
+async def mark_read(client, peer, account: str, username: str) -> None:
+    """Отмечает входящее прочитанным: у собеседника появляются две галочки.
+
+    Без этого человек видит одну галочку и решает, что его сообщение не дошло
+    или что на той стороне никого нет.
+    """
+    try:
+        await client.send_read_acknowledge(peer)
+    except Exception as exc:  # noqa: BLE001
+        db.event("read_ack_error", account, f"{type(exc).__name__}: {str(exc)[:60]}")
+
+
+async def ready_to_reply(client, peer, account: str, username: str) -> int:
+    """Человеческий порядок: сначала прочитал, потом подумал, потом написал."""
+    await mark_read(client, peer, account, username)
+    return await pause_before_reply(account, username)
+
+
 async def pause_before_reply(account: str, username: str) -> int:
     delay = reply_delay()
     if delay:
@@ -195,6 +213,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             continue
 
         if action == "silence":
+            await mark_read(client, sender, account, username)
             _mark(account, msg.id, action)
             continue
 
@@ -205,7 +224,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
 
             if salesperson.needs_human(msg.text or ""):
                 db.event("human_needed", account, f"@{username}: {(msg.text or '')[:120]}")
-                await pause_before_reply(account, username)
+                await ready_to_reply(client, sender, account, username)
                 try:
                     await client.send_message(
                         sender, "Тут лучше голосом — передаю куратору, он вам наберёт.")
@@ -229,7 +248,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             reply = salesperson.compose(history, account, stage=stage)
             if not reply:  # модель не ответила — держим диалог простой фразой
                 reply = salesperson.CHAT_FALLBACK + f"https://t.me/+{INVITE.get(account, '')}"
-            await pause_before_reply(account, username)
+            await ready_to_reply(client, sender, account, username)
             try:
                 await client.send_message(sender, reply)
             except Exception as exc:  # noqa: BLE001
@@ -247,7 +266,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             continue
 
         if action == "niche":
-            await pause_before_reply(account, username)
+            await ready_to_reply(client, sender, account, username)
             try:
                 await client.send_message(
                     sender,
@@ -263,7 +282,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             lines.append(f"{account}: ответ {action} для @{username}")
             continue
 
-        await pause_before_reply(account, username)
+        await ready_to_reply(client, sender, account, username)
         try:
             if action == "announce" and POSTER.exists():
                 await client.send_file(sender, str(POSTER), caption=announce_text(account),
