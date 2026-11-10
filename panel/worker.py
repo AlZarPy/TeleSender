@@ -26,6 +26,11 @@ from telethon import TelegramClient
 
 from config_loader import load_config_from_txt
 from io_utils import force_utf8
+
+# asyncio-задачи, которые живут дольше одной итерации цикла.
+# Без сильной ссылки сборщик мусора может убить задачу до её завершения —
+# именно из-за этого прогрев перепиской иногда не доходил до отправки.
+_BACKGROUND: set[asyncio.Task] = set()
 from proxy_config import describe, parse_proxy
 from sender import FloodDetected, is_transient, send_one
 
@@ -325,6 +330,15 @@ async def main_async(args) -> int:
 
     pool = Pool(accounts_cfg)
     log(f"аккаунтов в пуле: {len(accounts_cfg)}")
+
+    def live_accounts() -> list[dict]:
+        """Аккаунты, которые реально работают: есть прокси и статус active.
+
+        Без этого фильтра прогрев и скан ответов дёргали аккаунты на паузе,
+        каждый такой вызов падал с «нет прокси» и тормозил весь цикл.
+        """
+        return [a for a in db.accounts_with_config(accounts_cfg)
+                if a.get("proxy") and a.get("status") == "active"]
     last_reply_scan = 0.0
     last_warmup = 0.0
     last_chat = 0.0
@@ -346,7 +360,7 @@ async def main_async(args) -> int:
                 last_warmup = time.time()
                 try:
                     db.heartbeat("warmup", "прогрев подписками")
-                    actions = await warmup.tick(pool, db.accounts_with_config(accounts_cfg))
+                    actions = await warmup.tick(pool, live_accounts())
                     if actions:
                         log("🌱 прогрев: " + ", ".join(actions))
                 except Exception as exc:  # noqa: BLE001
@@ -359,7 +373,7 @@ async def main_async(args) -> int:
                     db.heartbeat("warmup", "прогрев перепиской")
                     async def chat_tick():
                         try:
-                            chats = await interchat.tick(pool, db.accounts_with_config(accounts_cfg))
+                            chats = await interchat.tick(pool, live_accounts())
                             if chats:
                                 log("💬 прогрев перепиской: " + "; ".join(chats))
                         except Exception as exc:  # noqa: BLE001
@@ -382,7 +396,7 @@ async def main_async(args) -> int:
             if not args.once and time.time() - last_reply_scan > 600:
                 last_reply_scan = time.time()
                 try:
-                    fresh = await replies.scan_pool(pool, db.accounts_with_config(accounts_cfg))
+                    fresh = await replies.scan_pool(pool, live_accounts())
                     if fresh:
                         log(f"💬 ответили: {', '.join('@' + u for u in fresh)}")
                 except Exception as exc:  # noqa: BLE001

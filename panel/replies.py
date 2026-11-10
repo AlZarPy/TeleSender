@@ -15,31 +15,51 @@ import sys
 from panel import db
 
 
-async def scan_client(client, limit: int = 30) -> list[tuple[str, str]]:
-    """Возвращает [(username, когда ответил)] по последним диалогам аккаунта."""
-    found: list[tuple[str, str]] = []
+async def scan_client(client, limit: int = 30) -> list[dict]:
+    """Возвращает [{username, when, text}] по последним диалогам аккаунта.
+
+    Голосовые и аудио расшифровываются локально (panel.voice), чтобы ответ
+    было видно текстом, а не «голосовое сообщение».
+    """
+    from panel import voice
+
+    found: list[dict] = []
     async for dialog in client.iter_dialogs(limit=limit):
         if not dialog.is_user:
             continue
         entity = dialog.entity
-        username = getattr(entity, "username", None)
+        # у части аккаунтов и людей нет юзернейма — тогда опознаём по id,
+        # иначе их ответы вообще не попадают в журнал
+        username = getattr(entity, "username", None) or f"id{getattr(entity, 'id', 0)}"
         if not username:
             continue
         last = dialog.message
         if last is None or getattr(last, "out", False):
             continue  # последним писали мы — ответа нет
         when = last.date.astimezone().strftime("%Y-%m-%d %H:%M:%S") if last.date else ""
-        found.append((username, when))
+        text = (getattr(last, "text", "") or "").strip()
+        if not text:
+            heard = await voice.transcribe_message(client, last)
+            if heard:
+                seconds = getattr(getattr(last, "voice", None), "duration", None)
+                head = f"[голосовое {seconds} с] " if seconds else "[голосовое] "
+                text = head + heard
+        found.append({"username": username, "when": when, "text": text})
     return found
 
 
-def remember(found: list[tuple[str, str]], account: str = "") -> list[str]:
+def remember(found: list[dict], account: str = "") -> list[str]:
     """Пишет ответы в базу. Возвращает имена тех, кто ответил впервые."""
     fresh = []
-    for username, when in found:
+    for item in found:
+        username, when = item["username"], item["when"]
+        text = (item.get("text") or "")[:200]
         if db.mark_replied(username, when):
             fresh.append(username)
-            db.event("reply", account, f"@{username} ответил {when}")
+            detail = f"@{username} ответил {when}"
+            if text:
+                detail += f": {text}"
+            db.event("reply", account, detail[:400])
     return fresh
 
 

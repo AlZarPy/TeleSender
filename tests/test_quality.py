@@ -115,7 +115,8 @@ found = asyncio.run(replies.scan_client(FakeClient([
     FakeDialog("канал", is_user=False),
     FakeDialog(None),                 # без username
 ])))
-check("сканер видит только ответы", [u for u, _ in found] == ["iqmuza2"], found)
+check("сканер видит только ответы",
+      [f["username"] for f in found] == ["iqmuza2", "id0"], found)
 fresh = replies.remember(found, "sender1")
 check("сканер помнит ответ", "iqmuza2" in db.replied_usernames())
 check("ответивший уже был отмечен раньше — не новый", fresh == [], fresh)
