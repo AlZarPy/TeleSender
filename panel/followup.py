@@ -185,7 +185,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
 
             history = []
             try:
-                async for m in client.iter_messages(sender, limit=6):
+                async for m in client.iter_messages(sender, limit=salesperson.MEMORY_TURNS):
                     who = "us" if m.out else "them"
                     if m.text:
                         history.append({"who": who, "text": m.text})
@@ -219,7 +219,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
                     f"Принял: {(msg.text or '').strip().lower()}. "
                     "Соберу 3 сценария под эту сферу и пришлю следом. "
                     "Пока — что будет 13 ноября: " + announce_text(account),
-                    parse_mode="md")
+                    parse_mode="md", link_preview=False)
             except Exception as exc:  # noqa: BLE001
                 db.event("followup_error", account, f"{type(exc).__name__}: {str(exc)[:80]}")
                 continue
@@ -231,7 +231,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
         try:
             if action == "announce" and POSTER.exists():
                 await client.send_file(sender, str(POSTER), caption=announce_text(account),
-                                       parse_mode="md")
+                                       parse_mode="md", link_preview=False)
             else:
                 await client.send_message(sender, explain_text())
         except Exception as exc:  # noqa: BLE001

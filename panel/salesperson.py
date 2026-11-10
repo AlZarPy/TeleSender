@@ -19,6 +19,8 @@ DEFAULT_MODEL = os.getenv("SENDERX_SALES_MODEL", "anthropic/claude-sonnet-5.5")
 FALLBACK_MODEL = "deepseek/deepseek-v4.1-flash-1017"
 MAX_CHARS = 220          # длинное сообщение в диалоге сразу выдаёт робота
 MAX_REPLIES = 3          # больше трёх реплик без ответного интереса — молчим
+MEMORY_TURNS = 30        # сколько реплик диалога помним
+MEMORY_CHARS = 6000      # и сколько знаков из них влезает в запрос
 
 # просят человека или спрашивают, кто мы: отвечает живой
 HUMAN = re.compile(r"позов|позвон|созвон|набери|человек[а]?\s|руководител|"
@@ -93,6 +95,20 @@ def _clean(text: str) -> str:
 
 CHAT_FALLBACK = ("Понял. Скину ссылку на группу школы — там программа и записи, "
                  "а по вопросам отвечу тут: ")
+
+
+def context(history: list[dict]) -> list[dict]:
+    """Последние реплики диалога в пределах лимита знаков. Старое отбрасываем."""
+    tail = history[-MEMORY_TURNS:]
+    total, kept = 0, []
+    for item in reversed(tail):
+        piece = item["text"][:400]
+        if total + len(piece) > MEMORY_CHARS and kept:
+            break
+        kept.append({"who": item["who"], "text": piece})
+        total += len(piece)
+    kept.reverse()
+    return kept
 
 
 def compose(history: list[dict], account_name: str, attempts: int = 2) -> str | None:
