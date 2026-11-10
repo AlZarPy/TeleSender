@@ -472,14 +472,21 @@ def close_target(campaign_id: int, recipient_id: int, state: str, reason: str = 
 
 
 def mark_read(message_ids: dict[str, list[int]], account: str) -> int:
-    """Помечает прочитанными отправленные сообщения: {получатель: [msg_id, ...]}."""
+    """Помечает прочитанными отправленные сообщения: {получатель: [msg_id, ...]}.
+
+    Считаем rowcount напрямую: execute() возвращает lastrowid, а для UPDATE это 0,
+    и «прочитано 0 сообщений» выглядело как неработающая проверка.
+    """
     total = 0
-    for recipient, ids in message_ids.items():
-        for msg_id in ids:
-            cur = execute("""UPDATE sends SET read_at=datetime('now','localtime')
-                             WHERE account=? AND recipient=? AND msg_id=? AND read_at=''""",
-                          (account, recipient, msg_id))
-            total += cur
+    with connect() as conn:
+        for recipient, ids in message_ids.items():
+            for msg_id in ids:
+                cur = conn.execute("""UPDATE sends SET read_at=datetime('now','localtime')
+                                      WHERE account=? AND LOWER(recipient)=LOWER(?)
+                                        AND msg_id=? AND read_at=''""",
+                                   (account, recipient, msg_id))
+                total += cur.rowcount
+        conn.commit()
     return total
 
 

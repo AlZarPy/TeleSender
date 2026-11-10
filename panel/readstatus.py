@@ -36,8 +36,8 @@ async def scan_client(client, account: str) -> list[str]:
         if not read_up_to:
             continue
         rows = db.q("""SELECT msg_id FROM sends
-                       WHERE account=? AND recipient=? AND msg_id>0 AND read_at=''
-                         AND msg_id<=?""", (account, username, read_up_to))
+                       WHERE account=? AND LOWER(recipient)=LOWER(?) AND msg_id>0
+                         AND read_at='' AND msg_id<=?""", (account, username, read_up_to))
         if not rows:
             continue
         ids = [int(r["msg_id"]) for r in rows]

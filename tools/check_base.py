@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import random
 import re
 import sys
 from pathlib import Path
@@ -21,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config_loader import load_config_from_txt  # noqa: E402
 from proxy_config import parse_proxy  # noqa: E402
 from telethon import TelegramClient  # noqa: E402
+from telethon.errors import FloodWaitError  # noqa: E402
 from telethon.tl.functions.contacts import ResolveUsernameRequest  # noqa: E402
 
 USERNAME = re.compile(r"(?:t\.me/|@)([A-Za-z][A-Za-z0-9_]{3,31})")
@@ -76,28 +78,44 @@ async def check(names: list[tuple[str, str]], account: str, limit: int) -> list[
                             connection_retries=2, request_retries=2, timeout=40)
     await client.connect()
     results: list[dict] = []
+    done = 0
     for username, label in names[:limit]:
+        if done and done % 25 == 0:
+            print(f"  проверено {done} из {len(names[:limit])}", flush=True)
         row = {"username": username, "name": label, "status": ""}
-        try:
-            found = await client(ResolveUsernameRequest(username))
-            user = next((u for u in found.users if getattr(u, "username", "").lower() == username), None)
-            if user is None:
-                row["status"] = "нет такого"
-            elif getattr(user, "bot", False):
-                row["status"] = "бот"
-            elif getattr(user, "deleted", False):
-                row["status"] = "удалён"
-            else:
-                row["status"] = "ок"
-                row["name"] = label or " ".join(
-                    x for x in (user.first_name, user.last_name) if x)[:60]
-        except Exception as exc:  # noqa: BLE001
-            name = type(exc).__name__
-            row["status"] = ("нет такого" if "NoUser" in name or "UsernameNotOccupied" in name
-                             else "бот" if "bot" in str(exc).lower()
-                             else f"ошибка: {name}")
+        for attempt in (1, 2, 3):
+            try:
+                found = await client(ResolveUsernameRequest(username))
+                user = next((u for u in found.users
+                             if getattr(u, "username", "").lower() == username), None)
+                if user is None:
+                    row["status"] = "нет такого"
+                elif getattr(user, "bot", False):
+                    row["status"] = "бот"
+                elif getattr(user, "deleted", False):
+                    row["status"] = "удалён"
+                else:
+                    row["status"] = "ок"
+                    row["name"] = label or " ".join(
+                        x for x in (user.first_name, user.last_name) if x)[:60]
+                break
+            except FloodWaitError as exc:
+                wait = min(int(getattr(exc, "seconds", 60)) + 5, 300)
+                print(f"  лимит на {wait} с (попытка {attempt})", flush=True)
+                await asyncio.sleep(wait)
+                row["status"] = "лимит"
+            except Exception as exc:  # noqa: BLE001
+                name = type(exc).__name__
+                row["status"] = ("нет такого" if "NoUser" in name or "UsernameNotOccupied" in name
+                                 else "бот" if "bot" in str(exc).lower()
+                                 else f"ошибка: {name}")
+                if attempt < 3:
+                    await asyncio.sleep(3 * attempt)
+                    continue
+                break
+        done += 1
         results.append(row)
-        await asyncio.sleep(0.7)   # не частим запросами
+        await asyncio.sleep(1.6 + random.random() * 0.8)   # прокси не любит частых запросов
     await client.disconnect()
     return results
 
@@ -117,17 +135,27 @@ def main() -> int:
     names = extract(read_rows(path))
     print(f"в файле: контактов {len(names)}")
 
-    results = asyncio.run(check(names, account, limit))
+    out = path.parent / "base_checked.csv"
+    known: set[str] = set()
+    if out.exists():
+        with out.open(encoding="utf-8-sig") as fh:
+            known = {r["username"].lower() for r in csv.DictReader(fh)}
+        print(f"уже проверено ранее: {len(known)}")
+
+    fresh = [(u, n) for u, n in names if u.lower() not in known]
+    print(f"к проверке: {len(fresh)}", flush=True)
+    results = asyncio.run(check(fresh, account, limit))
     ok = [r for r in results if r["status"] == "ок"]
     bad = [r for r in results if r["status"] != "ок"]
     counts: dict[str, int] = {}
     for r in bad:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
 
-    out = path.parent / "base_checked.csv"
-    with out.open("w", encoding="utf-8-sig", newline="") as fh:
+    mode = "a" if known else "w"
+    with out.open(mode, encoding="utf-8-sig", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=["username", "name", "status"])
-        w.writeheader()
+        if mode == "w":
+            w.writeheader()
         w.writerows(ok)
     print(f"живых: {len(ok)} | отсеяно: {len(bad)} ({counts})")
     print("готовый список:", out)
