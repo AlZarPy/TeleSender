@@ -58,8 +58,14 @@ def extract(rows: list[list[str]]) -> list[tuple[str, str]]:
                 key = name.lower()
                 if key in ("joinchat", "share", "addstickers", "proxy"):
                     continue
-                label = next((c.strip() for c in row if c.strip() and c.strip() != cell
-                              and not c.strip().startswith("@")), "")
+                # имя — самое «человеческое» поле строки: с буквами, без @, без ссылок и цифр
+                human = [c.strip() for c in row
+                         if c.strip() and c.strip() != cell
+                         and not c.strip().startswith("@")
+                         and "t.me/" not in c
+                         and not c.strip().isdigit()
+                         and len(c.strip()) >= 2]
+                label = max(human, key=len) if human else ""
                 out.setdefault(key, label[:60])
     return list(out.items())
 
