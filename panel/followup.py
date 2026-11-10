@@ -12,7 +12,7 @@ from pathlib import Path
 
 from telethon.tl.types import User
 
-from . import db
+from . import db, salesperson
 
 POSTER = Path("media/poster-terra.jpg")
 
@@ -33,8 +33,16 @@ REFUSE = re.compile(r"не\s*интерес|не\s*надо|не\s*нужно|н
 CONFUSED = re.compile(r"чем\s*(я\s*)?занима|в\s*смысле|не\s*пон(ял|ятно)|что\s*значит|поясни|о\s*ч[её]м\s*вы|какой\s*ниш", re.I)
 AGREE = re.compile(r"интересн|давай|да,|пришли|скин|присылай|хочу|расскаж|подробн|"
                    r"что\s*там|по\s*ии|про\s*ии|программ|расписан|да\b", re.I)
-NICHE_OK = re.compile(r"[а-яa-z]", re.I)
-SOFT = re.compile(r"^\s*(спасибо|благодарю|ок(?![а-яa-z])|окей|понял[аи]?(?![а-яa-z])|ясно|хорошо|принято|нет[, ]+спасибо)", re.I)
+NICHE_WORD = re.compile(
+    r"(опт|розниц|услуг|стройк|строит|ремонт|производств|завод|логистик|доставк|"
+    r"общепит|кафе|ресторан|бар|медицин|клиник|стоматолог|образовани|школ|курс|"
+    r"недвижим|агентств|маркетплейс|wildberries|ozon|магазин|айти|софт|сайт|"
+    r"маркетинг|реклам|юрист|бухгалтер|финанс|груз|автосервис|авто|мебель|одежд|"
+    r"обувь|косметик|красот|салон|фитнес|спорт|туризм|отел|гостиниц|сельск|агро|"
+    r"монтаж|отделк|франшиз|дистрибуц|импорт|экспорт|вэд|b2b|b2c)", re.I)
+OBJECTION = re.compile(r"далек|не\s*могу|нет\s*врем|дорого|позже|не\s*в\s*москв|"
+                       r"другой\s*город|онлайн|не\s*получится|занят", re.I)
+SOFT = re.compile(r"(?<![а-яa-z])(спасибо|благодарю|окей|ок|понял[аи]?|понятно|ясно|хорошо|принял[аи]?|договорились)(?![а-яa-z])", re.I)
 ASK = re.compile(r"сколько|цена|стоит|бесплатн|где\s|адрес|во\s*сколько|регистрац", re.I)
 
 
@@ -65,11 +73,22 @@ def decided(text: str) -> str:
         return "explain"
     if AGREE.search(t) or ASK.search(t):
         return "announce"
-    if SOFT.match(t) and len(t) <= 30:
+    if SOFT.search(t) and len(t) <= 45:
         return "silence"
-    if len(t) <= 40 and "?" not in t and NICHE_OK.search(t):
+    if OBJECTION.search(t):
+        return "chat"
+    if len(t) <= 40 and len(t.split()) <= 4 and "?" not in t and NICHE_WORD.search(t):
         return "niche"
+    if len(t) >= 3:
+        return "chat"
     return "silence"
+
+
+def announced_before(username: str) -> bool:
+    """Анонс с постером в этом диалоге уже отправляли — второй раз нельзя."""
+    return bool(db.q1(
+        "SELECT 1 FROM events WHERE kind IN ('followup','sales_reply') "
+        "AND detail LIKE ? AND detail LIKE '%announce%'", (f"%@{username}%",)))
 
 
 def cooling(username: str, hours: float | None = None) -> bool:
@@ -145,6 +164,52 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
 
         if action == "silence":
             _mark(account, msg.id, action)
+            continue
+
+        if action == "chat":
+            if salesperson.replies_so_far(username) >= salesperson.MAX_REPLIES:
+                _mark(account, msg.id, "limit")
+                continue
+
+            if salesperson.needs_human(msg.text or ""):
+                db.event("human_needed", account, f"@{username}: {(msg.text or '')[:120]}")
+                try:
+                    await client.send_message(
+                        sender, "Тут лучше голосом — передаю куратору, он вам наберёт.")
+                except Exception as exc:  # noqa: BLE001
+                    db.event("followup_error", account, f"{type(exc).__name__}")
+                _mark(account, msg.id, "human")
+                mark_cooling(username)
+                lines.append(f"{account}: передал человеку @{username}")
+                continue
+
+            history = []
+            try:
+                async for m in client.iter_messages(sender, limit=6):
+                    who = "us" if m.out else "them"
+                    if m.text:
+                        history.append({"who": who, "text": m.text})
+                history.reverse()
+            except Exception:  # noqa: BLE001
+                history = [{"who": "them", "text": msg.text or ""}]
+
+            reply = salesperson.compose(history, account)
+            if not reply:  # модель не ответила — держим диалог простой фразой
+                reply = salesperson.CHAT_FALLBACK + f"https://t.me/+{INVITE.get(account, '')}"
+            try:
+                await client.send_message(sender, reply)
+            except Exception as exc:  # noqa: BLE001
+                db.event("followup_error", account, f"{type(exc).__name__}: {str(exc)[:60]}")
+                continue
+            _mark(account, msg.id, action)
+            mark_cooling(username)
+            db.event("sales_reply", account, f"@{username}")
+            lines.append(f"{account}: ответил живьём @{username}")
+            continue
+
+        if action == "announce" and announced_before(username):
+            _mark(account, msg.id, "announce_dup")
+            db.event("announce_skipped", account, f"@{username} — анонс уже отправляли")
             continue
 
         if action == "niche":

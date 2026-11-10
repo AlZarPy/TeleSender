@@ -48,6 +48,13 @@ def main() -> int:
         "опт": "niche",
         "спасибо": "silence",
         "Ок, понял": "silence",
+        "теперь понял": "silence",
+        "я понял, спасибо": "silence",
+        "всё ясно": "silence",
+        "опт стройматериалов": "niche",
+        "у меня кафе": "niche",
+        "я из Казани, далеко": "chat",
+        "а что там по программе?": "announce",
     }
     for text, want in cases.items():
         got = followup.decided(text)
