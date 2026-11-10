@@ -43,16 +43,18 @@ class FakeClient:
         self._send_error = send_error
         self._entity_error = entity_error
         self.sent: list[tuple[object, str]] = []
+        self.parse_modes: list[object] = []
 
     async def get_entity(self, username):
         if self._entity_error:
             raise self._entity_error
         return self._entity
 
-    async def send_message(self, user, text):
+    async def send_message(self, user, text, parse_mode=None):
         if self._send_error:
             raise self._send_error
         self.sent.append((user, text))
+        self.parse_modes.append(parse_mode)
 
 
 async def tests() -> None:
@@ -64,6 +66,7 @@ async def tests() -> None:
     check("успешная отправка", result.ok and result.reason == "")
     check("шаблон отрендерен", bool(client.sent) and client.sent[0][1] == "Привет, Иван! Я Аня.",
           str(client.sent))
+    check("разметка передаётся как md", client.parse_modes == ["md"], str(client.parse_modes))
 
     self_client = FakeClient(entity=SimpleNamespace(id=1, first_name="Я"))
     result = await send_one(self_client, "me", "Аня", "x", me_id=1)

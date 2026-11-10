@@ -22,6 +22,21 @@ PLACEHOLDER_ME = "<МоёИмя>"
 PLACEHOLDER_HIM = "<ЕгоИмя>"
 
 
+def _md_mode(text: str) -> str | None:
+    """'md', если разметка Telegram корректна, иначе None — отправим как обычный текст.
+
+    Страховка от имён получателей с подчёркиваниями и незакрытых **: без неё
+    send_message с parse_mode='md' падает на разборе и сообщение не уходит.
+    """
+    from telethon.extensions import markdown
+
+    try:
+        markdown.parse(text)
+    except Exception:  # noqa: BLE001
+        return None
+    return "md"
+
+
 @dataclass(slots=True)
 class SendResult:
     username: str
@@ -79,7 +94,7 @@ async def send_one(client, username: str, my_name: str, template: str, me_id: in
         if len(text) > 1024:
             return SendResult(username, False, "caption_long")
         try:
-            await client.send_file(user, attachment, caption=text)
+            await client.send_file(user, attachment, caption=text, parse_mode=_md_mode(text))
         except FloodWaitError as exc:
             raise FloodDetected(exc.seconds, username) from exc
         except UserPrivacyRestrictedError:
@@ -93,7 +108,7 @@ async def send_one(client, username: str, my_name: str, template: str, me_id: in
         return SendResult(username, True)
 
     try:
-        await client.send_message(user, text)
+        await client.send_message(user, text, parse_mode=_md_mode(text))
     except FloodWaitError as exc:
         raise FloodDetected(exc.seconds, username) from exc
     except UserPrivacyRestrictedError:

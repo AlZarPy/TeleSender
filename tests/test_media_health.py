@@ -45,10 +45,10 @@ class FakeClient:
     async def get_entity(self, username):
         return FakeUser()
 
-    async def send_file(self, entity, file, caption=""):
+    async def send_file(self, entity, file, caption="", parse_mode=None):
         self.sent.append(("file", file, caption))
 
-    async def send_message(self, entity, text):
+    async def send_message(self, entity, text, parse_mode=None):
         self.sent.append(("text", text))
 
 
