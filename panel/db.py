@@ -108,6 +108,11 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS account_pacing (
+    account TEXT PRIMARY KEY,
+    next_at REAL NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS warmup_actions (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     account TEXT NOT NULL,
@@ -163,6 +168,13 @@ def _migrate() -> None:
             for column, ddl in columns.items():
                 if column not in have:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+        conn.execute("""CREATE TABLE IF NOT EXISTS followup_seen(
+            account TEXT NOT NULL,
+            msg_id INTEGER NOT NULL,
+            action TEXT NOT NULL DEFAULT '',
+            "when" TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(account, msg_id)
+        )""")
         conn.commit()
 
 
@@ -335,6 +347,54 @@ def next_target(campaign_id: int):
                  FROM campaign_targets t JOIN recipients r ON r.id = t.recipient_id
                  WHERE t.campaign_id=? AND t.state='pending' AND r.status='active'
                  ORDER BY t.recipient_id LIMIT 1""", (campaign_id,))
+
+
+def claim_target(campaign_id: int, account: str = ""):
+    """Атомарно забирает получателя: pending → sending.
+
+    Нужно при параллельной отправке: два потока не должны взять одного и того же
+    человека и послать ему два сообщения.
+    """
+    with connect() as conn:
+        row = conn.execute("""SELECT t.recipient_id, r.username, r.first_name
+                              FROM campaign_targets t JOIN recipients r ON r.id = t.recipient_id
+                              WHERE t.campaign_id=? AND t.state='pending' AND r.status='active'
+                              ORDER BY t.recipient_id LIMIT 1""",
+                           (campaign_id,)).fetchone()
+        if row is None:
+            return None
+        cur = conn.execute("""UPDATE campaign_targets
+                              SET state='sending', account=?, updated_at=datetime('now','localtime')
+                              WHERE campaign_id=? AND recipient_id=? AND state='pending'""",
+                           (account, campaign_id, row["recipient_id"]))
+        conn.commit()
+        return row if cur.rowcount == 1 else None
+
+
+def release_stale_targets(older_than_sec: int = 900) -> int:
+    """Возвращает в очередь то, что зависло в 'sending' после падения процесса."""
+    with connect() as conn:
+        if older_than_sec <= 0:
+            cur = conn.execute("UPDATE campaign_targets SET state='pending' "
+                               "WHERE state='sending'")
+        else:
+            cur = conn.execute("""UPDATE campaign_targets SET state='pending'
+                                  WHERE state='sending'
+                                    AND updated_at < datetime('now','localtime', ?)""",
+                               (f"-{max(1, older_than_sec // 60)} minutes",))
+        conn.commit()
+        return cur.rowcount
+
+
+def pacing_next_at(account: str) -> float:
+    row = q1("SELECT next_at FROM account_pacing WHERE account=?", (account,))
+    return float(row["next_at"]) if row else 0.0
+
+
+def pacing_set(account: str, next_at: float) -> None:
+    execute("""INSERT INTO account_pacing(account, next_at) VALUES(?,?)
+               ON CONFLICT(account) DO UPDATE SET next_at=excluded.next_at""",
+            (account, next_at))
 
 
 def close_target(campaign_id: int, recipient_id: int, state: str, reason: str = "",

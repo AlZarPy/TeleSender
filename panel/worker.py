@@ -36,7 +36,8 @@ from sender import FloodDetected, is_transient, send_one
 
 ROOT = Path(__file__).resolve().parent.parent
 
-from panel import brand, db, interchat, message, notify, report, replies, warmup, watchdog
+from panel import (brand, db, followup, interchat, message, notify, pacing,
+                   report, replies, warmup, watchdog)
 
 
 def resolve_attachment(value: str) -> str | None:
@@ -198,6 +199,8 @@ def pick_account(accounts: list[dict], hour_limit: int = 10) -> dict | None:
             continue
         if acc["paused_until"] > now:
             continue
+        if not pacing.ready(acc["session_name"]):
+            continue
         if hour_limit and db.hour_sent(acc["session_name"]) >= hour_limit:
             continue
         left = account_capacity(acc["session_name"], acc.get("effective_limit") or acc["daily_limit"])
@@ -241,9 +244,43 @@ async def send_with_retry(pool: Pool, name: str, target: dict, caller) -> object
     raise last if last else RuntimeError("send failed")
 
 
+PARALLEL = int(os.getenv("SENDERX_PARALLEL", "3"))
+
+
+async def run_batch(pool: Pool, campaign: dict, accounts: list[dict],
+                    n: int | None = None) -> list[str]:
+    """Несколько отправок одновременно — по одной на аккаунт.
+
+    Интервал внутри аккаунта не сокращается: параллельность даёт то, что разные
+    аккаунты не ждут друг друга, а не то, что один пишет чаще.
+    """
+    n = max(1, min(n or PARALLEL, 5))
+    tasks = [asyncio.create_task(run_once(pool, campaign, accounts)) for _ in range(n)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    out: list[str] = []
+    for r in results:
+        if isinstance(r, Exception):
+            db.event("batch_error", "", f"{type(r).__name__}: {str(r)[:80]}")
+            out.append("retry")
+        else:
+            out.append(r)
+    return out
+
+
 async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
-    """Одна отправка. Возвращает: sent | skipped | retry | wait | done."""
-    target = db.next_target(campaign["id"])
+    """Одна отправка. Возвращает: sent | skipped | retry | wait | done | busy."""
+    acc = pick_account(accounts, campaign.get("hour_limit") or 10)
+    if acc is None:
+        left = [db.pacing_next_at(a["session_name"]) for a in accounts
+                if a["status"] == "active"]
+        if left and all(t > time.time() for t in left):
+            db.heartbeat("waiting", "все аккаунты держат интервал между сообщениями")
+        else:
+            db.heartbeat("waiting", "нет аккаунта со свободной квотой (сутки или час)")
+        return "wait"
+
+    name = acc["session_name"]
+    target = db.claim_target(campaign["id"], name)
     if target is None:
         return "done"
 
@@ -258,15 +295,10 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
         log(f"↩️ @{target['username']} уже получал — пропускаю")
         return "skipped"
 
-    acc = pick_account(accounts, campaign.get("hour_limit") or 10)
-    if acc is None:
-        db.heartbeat("waiting", "нет аккаунта со свободной квотой (сутки или час)")
-        return "wait"
-
-    name = acc["session_name"]
     try:
         client = await pool.get(name)
     except PermissionError as exc:
+        db.close_target(campaign["id"], target["recipient_id"], "pending")
         db.set_account(name, status="paused", paused_until=time.time() + 3600)
         db.event("account_unusable", name, str(exc))
         log(f"⛔ {exc} — аккаунт на паузе")
@@ -310,7 +342,9 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
             await notify.send(pool, f"⛔ {name}: {why}. Аккаунт на паузе 6 часов.", name)
 
     if result.ok:
-        log(f"✅ {name} → @{target['username']}")
+        day = db.warmup_day(acc.get("warmup_start") or "")
+        wait = pacing.after_send(name, day)
+        log(f"✅ {name} → @{target['username']} (следующее через {wait} с)")
     else:
         log(f"❌ {name} → @{target['username']}: {brand.reason_label(result.reason)}")
     return "sent"
@@ -411,6 +445,14 @@ async def main_async(args) -> int:
                 except Exception as exc:  # noqa: BLE001
                     db.event("reply_scan_error", "", str(exc)[:120])
 
+                try:
+                    answered = await asyncio.wait_for(
+                        followup.tick(pool, live_accounts()), timeout=600)
+                    for line in answered:
+                        log(f"↩️ {line}")
+                except Exception as exc:  # noqa: BLE001
+                    db.event("followup_error", "", str(exc)[:120])
+
             campaign = db.q1("SELECT * FROM campaigns WHERE status='running' ORDER BY id LIMIT 1")
             if campaign is not None and not db.campaign_due(dict(campaign)):
                 db.heartbeat("waiting", f"кампания «{campaign['name']}» ждёт старта: {campaign['scheduled_at']}")
@@ -446,7 +488,8 @@ async def main_async(args) -> int:
 
             accounts = db.accounts_with_config(accounts_cfg)
             db.heartbeat("working", f"кампания «{campaign['name']}»: {stats['pending']} в очереди")
-            state = await run_once(pool, campaign, accounts)
+            states = await run_batch(pool, campaign, accounts)
+            state = "sent" if "sent" in states else states[0]
 
             # Сторож: серия ошибок или высокая их доля — кампанию останавливаем.
             if state == "sent":
@@ -478,9 +521,9 @@ async def main_async(args) -> int:
             elif state == "skipped":
                 await asyncio.sleep(1)
             else:
-                delay = random.randint(campaign["min_delay"], campaign["max_delay"])
-                log(f"   пауза {delay} с")
-                await asyncio.sleep(delay)
+                # интервал держит pacing на каждом аккаунте, здесь только
+                # небольшая пауза между батчами
+                await asyncio.sleep(5)
     finally:
         await pool.close_all()
         db.heartbeat("stopped", "воркер остановлен")
@@ -508,6 +551,10 @@ def main() -> int:
     parser.add_argument("--once", action="store_true", help="одна отправка и выход (тест)")
     parser.add_argument("--config", default=None, help="файл аккаунтов")
     args = parser.parse_args()
+
+    released = db.release_stale_targets(900)
+    if released:
+        log(f"↩️ {released} адресат(ов) вернулись в очередь после прошлого падения")
 
     lock = None
     if not args.once:
