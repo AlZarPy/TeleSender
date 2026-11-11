@@ -77,6 +77,9 @@ class Pool:
     def __init__(self, accounts: list[dict]):
         self.accounts = {a["session_name"]: a for a in accounts}
         self.clients: dict[str, TelegramClient] = {}
+        # по одному замку на аккаунт: без него параллельные задачи поднимают
+        # два клиента на один файл сессии и получают AuthKeyDuplicated
+        self._locks: dict[str, asyncio.Lock] = {}
         self.me_ids: dict[str, int | None] = {}
         self.failures: dict[str, int] = {}
         self.paused_until: dict[str, float] = {}
@@ -94,7 +97,19 @@ class Pool:
         self.paused_until[name] = time.time() + delay
         log(f"{name}: подключение не удалось ({type(exc).__name__}), пауза {delay} с")
 
+    def _lock(self, name: str) -> asyncio.Lock:
+        lock = self._locks.get(name)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[name] = lock
+        return lock
+
     async def get(self, name: str) -> TelegramClient:
+        """Выдаёт клиент под замком аккаунта: один клиент на сессию."""
+        async with self._lock(name):
+            return await self._get_unlocked(name)
+
+    async def _get_unlocked(self, name: str) -> TelegramClient:
         if name in self.clients:
             client = self.clients[name]
             # клиент мог отвалиться по таймауту прокси — тогда поднимаем заново
@@ -173,6 +188,10 @@ class Pool:
 
     async def reset(self, name: str) -> None:
         """Сбрасывает клиент аккаунта — нужно после сетевого сбоя."""
+        async with self._lock(name):
+            await self._reset_unlocked(name)
+
+    async def _reset_unlocked(self, name: str) -> None:
         client = self.clients.pop(name, None)
         if client is not None:
             try:
@@ -197,6 +216,12 @@ def account_capacity(name: str, limit: int) -> int:
     return max(0, limit - (row["c"] if row else 0))
 
 
+# Аккаунт, который прямо сейчас занят отправкой. Резервируется синхронно,
+# до первого await: иначе параллельные run_once берут один и тот же аккаунт
+# и пишут пачкой, без интервала и сверх часового лимита.
+_BUSY: set[str] = set()
+
+
 def pick_account(accounts: list[dict], hour_limit: int = 10) -> dict | None:
     now = time.time()
     usable = []
@@ -204,6 +229,8 @@ def pick_account(accounts: list[dict], hour_limit: int = 10) -> dict | None:
         if acc["status"] != "active":
             continue
         if acc["paused_until"] > now:
+            continue
+        if acc["session_name"] in _BUSY:
             continue
         if not pacing.ready(acc["session_name"]):
             continue
@@ -215,7 +242,19 @@ def pick_account(accounts: list[dict], hour_limit: int = 10) -> dict | None:
     if not usable:
         return None
     usable.sort(key=lambda pair: pair[0], reverse=True)
-    return usable[0][1]
+    chosen = usable[0][1]
+    name = chosen["session_name"]
+
+    # резервируем: сразу занимаем аккаунт и отодвигаем его следующий слот,
+    # чтобы соседняя задача не взяла его же до фактической отправки
+    _BUSY.add(name)
+    day = chosen.get("warmup_day")
+    pacing.after_send(name, 7 if day is None else int(day))
+    return chosen
+
+
+def release_account(name: str) -> None:
+    _BUSY.discard(name)
 
 
 def in_window(campaign: dict) -> bool:
@@ -311,12 +350,13 @@ def copy_gate(campaign: dict) -> str | None:
 
 
 async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
-    """Одна отправка. Возвращает: sent | skipped | retry | wait | done | busy."""
+    """Одна отправка. Резервирует аккаунт и обязательно освобождает его."""
     blocked = copy_gate(campaign)
     if blocked:
         return "done"
 
-    acc = pick_account(accounts, campaign.get("hour_limit") or 10)
+    hour_limit = campaign.get("hour_limit")
+    acc = pick_account(accounts, 10 if hour_limit is None else int(hour_limit))
     if acc is None:
         left = [db.pacing_next_at(a["session_name"]) for a in accounts
                 if a["status"] == "active"]
@@ -326,6 +366,14 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
             db.heartbeat("waiting", "нет аккаунта со свободной квотой (сутки или час)")
         return "wait"
 
+    name = acc["session_name"]
+    try:
+        return await _send_once(pool, campaign, accounts, acc)
+    finally:
+        release_account(name)
+
+
+async def _send_once(pool: Pool, campaign: dict, accounts: list[dict], acc: dict) -> str:
     name = acc["session_name"]
     target = db.claim_target(campaign["id"], name)
     if target is None:
@@ -457,6 +505,9 @@ async def main_async(args) -> int:
             if not args.once and time.time() - last_idle_check > 300:
                 last_idle_check = time.time()
                 await pool.close_idle()
+
+            # аккаунты, у которых пауза истекла, возвращаются в работу
+            db.resume_due()
 
             # кампании, у которых наступило время старта, выходят из черновиков
             promoted = db.promote_due()

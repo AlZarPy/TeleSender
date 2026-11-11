@@ -386,6 +386,20 @@ def accounts_with_config(config_accounts: list[dict]) -> list[dict]:
     return out
 
 
+def resume_due() -> int:
+    """Возвращает в работу аккаунты, у которых пауза уже истекла.
+
+    Без этого flood-пауза выключала аккаунт из ротации навсегда: статус
+    оставался paused, а pick_account берёт только active.
+    """
+    execute("""UPDATE accounts SET status='active', paused_until=0
+               WHERE status='paused' AND paused_until>0
+                 AND paused_until < strftime('%s','now')""")
+    row = q1("""SELECT COUNT(*) n FROM accounts
+                WHERE status='active' AND paused_until=0""")
+    return int(row["n"]) if row else 0
+
+
 def set_account(name: str, daily_limit: int | None = None, status: str | None = None,
                 paused_until: float | None = None, note: str | None = None,
                 warmup_start: str | None = None, warmup_days: int | None = None) -> None:
