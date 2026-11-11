@@ -191,6 +191,7 @@ def _migrate() -> None:
             "warmup_start": "TEXT NOT NULL DEFAULT ''",
             "warmup_days": "INTEGER NOT NULL DEFAULT 7",
             "grp": "TEXT NOT NULL DEFAULT ''",
+            "profile_ready": "INTEGER NOT NULL DEFAULT 0",
         },
         "recipients": {
             "replied": "INTEGER NOT NULL DEFAULT 0",
@@ -320,7 +321,8 @@ def accounts_with_config(config_accounts: list[dict]) -> list[dict]:
     for acc in config_accounts:
         name = acc["session_name"]
         row = stored.get(name, {"daily_limit": 20, "status": "active", "paused_until": 0,
-                                "warmup_start": "", "warmup_days": 7, "note": ""})
+                                "warmup_start": "", "warmup_days": 7, "note": "",
+                                "profile_ready": 0})
         paused = row["status"] == "paused"
         warmup_start = row.get("warmup_start") or ""
         warmup_days = row.get("warmup_days") or 7
@@ -337,6 +339,7 @@ def accounts_with_config(config_accounts: list[dict]) -> list[dict]:
             "status": row["status"],
             "paused_until": row["paused_until"],
             "note": row["note"],
+            "profile_ready": int(row.get("profile_ready") or 0),
             "sent_today": sent_today.get(name, 0),
             "left_today": max(0, left),
             "paused_now": paused and (row["paused_until"] or 0) > time.time(),

@@ -58,6 +58,10 @@ def should_tick(account: dict, per_day: int = PER_DAY) -> bool:
         return False
     if account.get("status") != "active":
         return False
+    # Профиль должен быть готов до первого действия: скрытый номер, свой юзернейм,
+    # описание и аватарка. Иначе аккаунт светит фабричное имя и чужой номер.
+    if "profile_ready" in account and not account.get("profile_ready"):
+        return False
     return db.warmup_count_today(account["session_name"]) < per_day
 
 
