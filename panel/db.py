@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS peers (
     username     TEXT NOT NULL,
     peer_id      INTEGER NOT NULL,
     access_hash  INTEGER NOT NULL,
+    first_name   TEXT NOT NULL DEFAULT '', 
     updated_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     PRIMARY KEY(account, username)
 );
@@ -256,6 +257,9 @@ def _migrate() -> None:
             "last_reply": "TEXT NOT NULL DEFAULT ''",
             "consent": "INTEGER NOT NULL DEFAULT 0",
             "consent_at": "TEXT NOT NULL DEFAULT ''",
+        },
+        "peers": {
+            "first_name": "TEXT NOT NULL DEFAULT ''",
         },
         "sends": {
             "read_at": "TEXT NOT NULL DEFAULT ''",
@@ -693,6 +697,23 @@ def read_stats(minutes: int = 1440) -> dict:
     read_cnt = int(row["read_cnt"] or 0) if row else 0
     return {"sent": total, "read": read_cnt,
             "read_share": round(read_cnt / total, 3) if total else 0.0}
+
+
+def sent_same_recently(recipient: str, text: str, hours: int = 24) -> bool:
+    """Уже отправляли этому человеку этот же текст недавно?
+
+    Защита от двойной отправки: при ручной отладке легко нажать «ещё раз»,
+    а человек получает дубль — это прямой повод для жалобы.
+    """
+    needle = (text or "").strip()[:200]
+    if not needle or hours <= 0:
+        return False
+    row = q1("""SELECT 1 AS x FROM sends
+                WHERE LOWER(recipient)=LOWER(?) AND ok=1
+                  AND SUBSTR(text,1,200)=?
+                  AND ts >= datetime('now','localtime', ?)
+                LIMIT 1""", (recipient.lstrip("@"), needle, f"-{hours} hours"))
+    return row is not None
 
 
 def log_send(campaign_id: int, recipient: str, account: str, ok: bool,

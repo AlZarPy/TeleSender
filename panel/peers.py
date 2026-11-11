@@ -25,12 +25,22 @@ def peer(account: str, username: str) -> InputPeerUser | None:
 
 def remember(account: str, username: str, user: User) -> None:
     key = username.lstrip("@").lower()
-    db.execute("""INSERT INTO peers(account, username, peer_id, access_hash)
-                  VALUES(?,?,?,?)
+    db.execute("""INSERT INTO peers(account, username, peer_id, access_hash, first_name)
+                  VALUES(?,?,?,?,?)
                   ON CONFLICT(account, username) DO UPDATE SET
                     peer_id=excluded.peer_id, access_hash=excluded.access_hash,
+                    first_name=CASE WHEN excluded.first_name<>'' THEN excluded.first_name
+                                    ELSE peers.first_name END,
                     updated_at=datetime('now','localtime')""",
-               (account, key, int(user.id), int(getattr(user, "access_hash", 0) or 0)))
+               (account, key, int(user.id), int(getattr(user, "access_hash", 0) or 0),
+                (getattr(user, "first_name", "") or "")[:60]))
+
+
+def name(account: str, username: str) -> str:
+    """Имя собеседника из кэша: без него в тексте получается «друг»."""
+    row = db.q1("SELECT first_name FROM peers WHERE account=? AND username=?",
+                (account, username.lstrip("@").lower()))
+    return (row["first_name"] if row and row["first_name"] else "")
 
 
 def forget(account: str, username: str) -> None:

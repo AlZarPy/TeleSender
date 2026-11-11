@@ -138,6 +138,12 @@ async def send_one(client, username: str, my_name: str, template: str, me_id: in
     his_name = getattr(user, "first_name", "") or ""
     text = template_fn(his_name) if template_fn else render(template, my_name, his_name)
 
+    # защита от дубля: тот же текст этому же человеку в течение суток не шлём
+    from panel import db as _db
+
+    if _db.sent_same_recently(username, text, hours=24):
+        return SendResult(username, False, "duplicate")
+
     if attachment:
         if len(text) > 1024:
             return SendResult(username, False, "caption_long")

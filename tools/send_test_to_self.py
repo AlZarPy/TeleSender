@@ -38,7 +38,7 @@ def proxies() -> dict[str, str]:
 
 
 async def send_one(account: str, text: str, target: str, cfg: dict, px: dict,
-                   dry: bool) -> str:
+                   dry: bool, force: bool = False) -> str:
     _k, host, port, rdns, user, pwd = parse_proxy(px[account])
     client = TelegramClient(account, cfg[account]["api_id"], cfg[account]["api_hash"],
                             proxy=("socks5", host, int(port), rdns, user, pwd),
@@ -56,6 +56,8 @@ async def send_one(account: str, text: str, target: str, cfg: dict, px: dict,
         body = message.personalise(expanded, me.first_name or "", his)
         if dry:
             return f"{account} ({me.first_name}): [dry] {body[:80]}…"
+        if db.sent_same_recently(target, body, hours=24) and not force:
+            return f"{account}: этот текст уже уходил @{target} — не отправляю"
         sent = await client.send_message(entity, body, parse_mode="md", link_preview=False)
         db.log_send(0, target, account, True, "test_to_self", sent.id,
                     variant=1000, text=body)
@@ -118,7 +120,8 @@ async def main() -> int:
             print(f"{name}: нет переписанного текста — пропуск")
             continue
         variant = rows[(i - 1) % len(rows)]
-        line = await send_one(name, variant["text"], args.target, cfg, px, args.dry_run)
+        line = await send_one(name, variant["text"], args.target, cfg, px,
+                              args.dry_run, force=args.force)
         print(f"{i}/{len(names)} {line}", flush=True)
         if "ОШИБКА" in line:
             failed += 1
