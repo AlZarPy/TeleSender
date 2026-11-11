@@ -437,6 +437,8 @@ async def main_async(args) -> int:
         return [a for a in db.accounts_with_config(accounts_cfg)
                 if a.get("proxy") and a.get("status") == "active"]
     last_reply_scan = 0.0
+    last_read_scan = 0.0
+    last_checks_scan = 0.0
     last_warmup = 0.0
     last_chat = 0.0
     last_idle_check = 0.0
@@ -501,8 +503,10 @@ async def main_async(args) -> int:
                         db.meta_set("last_report", today)
                         log("📊 сводка за сутки отправлена в Telegram")
 
-            # ответы ищем редко: раз в 10 минут, чтобы не тратить лимиты
-            if not args.once and time.time() - last_reply_scan > 600:
+            # Ответы ищем часто: человек не должен ждать четверть часа.
+            # Интервал настраивается: SENDERX_REPLY_SCAN (сек, по умолчанию 120).
+            reply_scan = int(os.environ.get("SENDERX_REPLY_SCAN", "120"))
+            if not args.once and time.time() - last_reply_scan > reply_scan:
                 last_reply_scan = time.time()
                 try:
                     fresh = await asyncio.wait_for(
@@ -512,6 +516,10 @@ async def main_async(args) -> int:
                 except Exception as exc:  # noqa: BLE001
                     db.event("reply_scan_error", "", str(exc)[:120])
 
+            # отметки о прочтении — реже: они не влияют на скорость ответа
+            read_scan = int(os.environ.get("SENDERX_READ_SCAN", "300"))
+            if not args.once and time.time() - last_read_scan > read_scan:
+                last_read_scan = time.time()
                 try:
                     read_now = await asyncio.wait_for(
                         readstatus.tick(pool, live_accounts()), timeout=600)
@@ -520,6 +528,9 @@ async def main_async(args) -> int:
                 except Exception as exc:  # noqa: BLE001
                     db.event("read_scan_error", "", str(exc)[:120])
 
+            # здоровье и @SpamBot — раз в полчаса (он и сам пропускает свежие)
+            if not args.once and time.time() - last_checks_scan > 1800:
+                last_checks_scan = time.time()
                 try:
                     checked = await asyncio.wait_for(
                         checks.tick(pool, live_accounts()), timeout=900)

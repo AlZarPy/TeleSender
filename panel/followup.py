@@ -21,8 +21,8 @@ POSTER = Path("media/poster-terra.jpg")
 
 # Пауза перед ответом: человек не отвечает через секунду. Ровный интервал тоже
 # подозрителен, поэтому разброс большой, а иногда ответ «задерживается».
-REPLY_DELAY = (20, 90)
-LONG_DELAY = (120, 300)
+REPLY_DELAY = (20, 60)
+LONG_DELAY = (60, 120)
 LONG_CHANCE = 0.08
 
 
@@ -31,7 +31,7 @@ def reply_delay(rng: random.Random | None = None) -> int:
     delay = rng.randint(*REPLY_DELAY)
     if rng.random() < LONG_CHANCE:
         delay = rng.randint(*LONG_DELAY)
-    cap = int(os.getenv("SENDERX_REPLY_DELAY_MAX", "300"))
+    cap = int(os.getenv("SENDERX_REPLY_DELAY_MAX", "120"))
     return max(0, min(delay, cap))
 
 
