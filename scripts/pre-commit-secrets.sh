@@ -20,6 +20,10 @@ fi
 patterns='(api[_-]?key|secret|passw|token)[[:space:]]*[:=][[:space:]]*["'\'']?[A-Za-z0-9_\-]{12,}|socks5://[^:[:space:]]+:[^@[:space:]]+@|-----BEGIN [A-Z ]*PRIVATE KEY-----|[0-9]{10}:[A-Za-z0-9_-]{30,}'
 for file in $staged; do
     [ -f "$file" ] || continue
+    # файлы проверки содержат свои же шаблоны — себя не сканируют
+    case "$file" in
+        .github/workflows/secret-scan.yml|scripts/pre-commit-secrets.sh) continue ;;
+    esac
     if grep -Eiq "$patterns" "$file"; then
         echo "✗ похоже на секрет в файле: $file" >&2
         fail=1
