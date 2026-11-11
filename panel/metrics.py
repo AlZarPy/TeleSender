@@ -90,19 +90,34 @@ def quality(days: int = 7) -> list[dict]:
     total = int(sent_row["total"] or 0) if sent_row else 0
     ok = int(sent_row["ok"] or 0) if sent_row else 0
 
+    # COALESCE: если колонка NULL, сравнение read_at<>'' даёт NULL и прочтения исчезают
     read_row = db.q1("""SELECT COUNT(*) c FROM sends
-                        WHERE ts >= datetime('now','localtime', ?) AND read_at<>''""",
+                        WHERE ts >= datetime('now','localtime', ?)
+                          AND COALESCE(read_at,'')<>''""",
                      (f"-{days} days",))
     read = int(read_row["c"] if read_row else 0)
 
-    replied_row = db.q1("""SELECT COUNT(*) c FROM sends s JOIN recipients r
-                           ON LOWER(r.username)=LOWER(s.recipient)
+    # считаем людей, а не строки: один человек не должен давать N «ответов»
+    replied_row = db.q1("""SELECT COUNT(DISTINCT LOWER(s.recipient)) c
+                           FROM sends s JOIN recipients r
+                             ON LOWER(r.username)=LOWER(s.recipient)
                            WHERE s.ts >= datetime('now','localtime', ?) AND r.replied=1""",
                         (f"-{days} days",))
     replied = int(replied_row["c"] if replied_row else 0)
 
-    blocked_row = db.q1("SELECT COUNT(*) c FROM recipients WHERE status<>'active'")
+    # жалобы — это события за период: отписки по просьбе и спам-блоки аккаунтов.
+    # Раньше считались все заблокированные за всё время и делились на отправки —
+    # цифра врала в обе стороны.
+    blocked_row = db.q1("""SELECT COUNT(*) c FROM events
+                           WHERE kind IN ('recipient_blocked','spam_block')
+                             AND ts >= datetime('now','localtime', ?)""",
+                        (f"-{days} days",))
     blocked = int(blocked_row["c"] if blocked_row else 0)
+
+    people_row = db.q1("""SELECT COUNT(DISTINCT LOWER(recipient)) c FROM sends
+                          WHERE ts >= datetime('now','localtime', ?)""",
+                       (f"-{days} days",))
+    people = int(people_row["c"] if people_row else 0)
 
     # «Выживание» — доля рабочих аккаунтов, которые за 30 дней не ушли в ограничение.
     # Просто active/total не годится: в базе лежат старые BR/US-аккаунты, снятые с работы
@@ -120,8 +135,8 @@ def quality(days: int = 7) -> list[dict]:
     values = {
         "delivery": share(ok, total),
         "read": share(read, total),
-        "reply": share(replied, max(total, 1)),
-        "complaints": share(blocked, max(total, 1)),
+        "reply": share(replied, max(people, 1)),
+        "complaints": share(blocked, max(people, 1)),
         "survival": share(acc_active, acc_total),
     }
 

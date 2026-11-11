@@ -434,6 +434,8 @@ def upsert_recipients(items: list[tuple[str, str, str]]) -> tuple[int, int]:
 def block_recipient(username: str, blocked: bool = True) -> None:
     execute("UPDATE recipients SET status=? WHERE username=?",
             ("blocked" if blocked else "active", username))
+    if blocked:
+        event("recipient_blocked", "", f"@{username.lstrip('@')} попросил не писать")
 
 
 # ── кампании ────────────────────────────────────────────────────────────────

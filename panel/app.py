@@ -14,11 +14,12 @@ import os
 import secrets
 import socket
 import time
+from datetime import datetime
 import urllib.parse
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -154,7 +155,7 @@ def cookie_valid(value: str | None) -> bool:
 
 def current_user(request: Request) -> str:
     if not cookie_valid(request.cookies.get(COOKIE)):
-        raise HTTPException(status_code=307, headers={"Location": "/login"})
+        raise HTTPException(status_code=401, detail="нужен вход", headers={"Location": "/login"})
     return "operator"
 
 
@@ -308,13 +309,30 @@ def campaign_create(request: Request, name: str = Form(...), template: str = For
     if not names:
         raise HTTPException(400, "нет получателей")
     db.upsert_recipients([(n, "", "") for n in names])
+
+    # границы ввода: без них можно поставить min_delay=1 и hour_limit=1000,
+    # и аккаунты уйдут в бан на первом же десятке сообщений
+    min_delay = max(20, min(600, min_delay or 25))
+    max_delay = max(min_delay + 5, min(900, max_delay or min_delay + 45))
+    hour_limit = max(1, min(20, hour_limit or 10))
+    window_start = max(0, min(23, window_start))
+    window_end = max(1, min(23, window_end))
+    if window_end <= window_start:
+        window_end = min(23, window_start + 1)
+
     when = scheduled_at.strip().replace("T", " ")
-    if when and len(when) == 16:
-        when += ":00"
+    if when:
+        if len(when) == 16:
+            when += ":00"
+        try:
+            datetime.fromisoformat(when)
+        except ValueError:
+            raise HTTPException(400, "неверная дата запуска")
+
     cid = db.create_campaign(name.strip() or "без названия", template.strip(), names,
                              intro=intro.strip(),
-                             min_delay=min_delay, max_delay=max(min_delay, max_delay),
-                             hour_limit=max(1, hour_limit),
+                             min_delay=min_delay, max_delay=max_delay,
+                             hour_limit=hour_limit,
                              window_start=window_start, window_end=window_end,
                              allow_self=bool(allow_self), allow_repeat=bool(allow_repeat),
                              scheduled_at=when, attachment=attachment.strip())
@@ -470,8 +488,26 @@ def campaign_action(cid: int, action: str, user: str = Depends(current_user)):
     if row is None:
         raise HTTPException(404)
     if action == "delete":
+        # работающую кампанию не удаляем: очередь и история целей пропали бы безвозвратно
+        if row["status"] == "running":
+            raise HTTPException(409, "сначала остановите кампанию")
+        try:
+            export = Path("backups") / f"campaign-{cid}-targets.csv"
+            export.parent.mkdir(exist_ok=True)
+            rows = db.q("""SELECT t.recipient_id, r.username, t.state, t.reason, t.account, t.updated_at
+                           FROM campaign_targets t LEFT JOIN recipients r ON r.id=t.recipient_id
+                           WHERE t.campaign_id=?""", (cid,))
+            with export.open("w", encoding="utf-8-sig") as fh:
+                fh.write("recipient_id;username;state;reason;account;updated_at\n")
+                for r in rows:
+                    fh.write(";".join(str(r[k] or "") for k in
+                                      ("recipient_id", "username", "state", "reason",
+                                       "account", "updated_at")) + "\n")
+        except OSError:
+            pass
         db.execute("DELETE FROM campaign_targets WHERE campaign_id=?", (cid,))
         db.execute("DELETE FROM campaigns WHERE id=?", (cid,))
+        db.event("campaign_delete", "", f"удалена кампания «{row['name']}» (цели выгружены)")
         return RedirectResponse("/campaigns", status_code=303)
     db.set_campaign_status(cid, {"start": "running", "pause": "paused", "stop": "stopped"}[action])
     verb = {"start": "кампания запущена", "pause": "кампания на паузе",
