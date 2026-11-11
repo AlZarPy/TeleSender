@@ -39,7 +39,7 @@ def test_context_block_has_facts_only():
     facts.seed()
     block = facts.context_for("где проходит", limit=3)
     assert "Краснопресненская" in block
-    assert block.count("— ") <= 3
+    assert sum(1 for line in block.splitlines() if line.startswith("— ")) <= 3
 
 
 def test_correct_numbers_pass():
