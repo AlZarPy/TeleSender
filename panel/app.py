@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from config_loader import ConfigError, load_config_from_txt
 from csv_loader import normalise
 
-from panel import brand, checks, db, health, message, metrics, synonyms, watchdog
+from panel import antispam, brand, checks, db, health, message, metrics, synonyms, watchdog
 
 PANEL_NAME = brand.PANEL
 COOKIE = "pochtamt"
@@ -262,6 +262,9 @@ def dashboard(request: Request, user: str = Depends(current_user)):
     accounts = db.accounts_with_config(config_accounts())
     campaigns = [dict(r) for r in db.q("SELECT * FROM campaigns ORDER BY id DESC LIMIT 5")]
     for campaign in campaigns:
+        copy = antispam.score(campaign.get("template") or "")
+        campaign["copy_score"] = copy["points"]
+        campaign["copy_verdict"] = copy["verdict"]
         campaign["stats"] = db.campaign_stats(campaign["id"])
     totals_row = db.q1("""SELECT
         SUM(ok=1) ok, SUM(ok=0) failed, COUNT(*) total FROM sends

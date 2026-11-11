@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import os
 import random
 import sys
 import time
@@ -36,8 +37,8 @@ from sender import FloodDetected, is_transient, send_one
 
 ROOT = Path(__file__).resolve().parent.parent
 
-from panel import (brand, checks, db, followup, interchat, message, notify, pacing,
-                   readstatus, report, replies, unique, warmup, watchdog)
+from panel import (antispam, brand, checks, db, followup, interchat, message, notify,
+                   pacing, readstatus, report, replies, unique, warmup, watchdog)
 
 
 def resolve_attachment(value: str) -> str | None:
@@ -268,8 +269,39 @@ async def run_batch(pool: Pool, campaign: dict, accounts: list[dict],
     return out
 
 
+
+_COPY_CACHE: dict[int, dict] = {}
+
+
+def copy_gate(campaign: dict) -> str | None:
+    """Проверка текста кампании на признаки спама до первой отправки.
+
+    Возвращает причину остановки или None, если текст можно отправлять.
+    Скор считается один раз на кампанию: текст не меняется во время волны.
+    """
+    cid = campaign["id"]
+    res = _COPY_CACHE.get(cid)
+    if res is None:
+        res = antispam.score(campaign.get("template") or "")
+        _COPY_CACHE[cid] = res
+        db.event("copy_score", "", f"{res['points']}:{res['verdict']}")
+        log(f"текст кампании {cid}: скор {res['points']} ({res['verdict']})")
+
+    if res["verdict"] == "спам" and not os.environ.get("SENDERX_ALLOW_SPAMMY_TEXT"):
+        reason = (f"текст похож на спам, {res['points']} баллов: "
+                  + "; ".join(i["code"] for i in res["issues"]))
+        db.stop_campaign(cid, reason)
+        db.event("copy_blocked", "", reason)
+        return reason
+    return None
+
+
 async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     """Одна отправка. Возвращает: sent | skipped | retry | wait | done | busy."""
+    blocked = copy_gate(campaign)
+    if blocked:
+        return "done"
+
     acc = pick_account(accounts, campaign.get("hour_limit") or 10)
     if acc is None:
         left = [db.pacing_next_at(a["session_name"]) for a in accounts

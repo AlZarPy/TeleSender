@@ -129,10 +129,14 @@
       {{ c.stats.sent }}/{{ c.stats.total }}
       <div class="progress"><i style="width:{{ (100 * c.stats.sent / c.stats.total)|round(0) if c.stats.total else 0 }}%"></i></div>
     </td>
+    <td class="small">
+      <span class="pill {{ 'ok' if c.copy_verdict == 'чисто' else ('bad' if c.copy_verdict == 'спам' else 'pending') }}"
+            title="скор спамности: 0–1 чисто, 2–3 рискованно, 4+ спам">{{ c.copy_score }} · {{ c.copy_verdict }}</span>
+    </td>
     <td class="small muted">{{ c.created_at }}</td>
   </tr>
   {% endfor %}
-  {% if not campaigns %}<tr><td colspan="5" class="muted">кампаний нет — <a href="/campaigns">создать</a></td></tr>{% endif %}
+  {% if not campaigns %}<tr><td colspan="6" class="muted">кампаний нет — <a href="/campaigns">создать</a></td></tr>{% endif %}
 </table>
 </div>
 
