@@ -266,11 +266,35 @@ def in_window(campaign: dict) -> bool:
 RETRY_DELAYS = (5, 15, 45)
 
 
-async def send_with_retry(pool: Pool, name: str, target: dict, caller) -> object:
-    """Повторяет отправку при временных сбоях: сеть, таймаут, ошибка сервера.
+async def _already_delivered(client, username: str, text: str, minutes: int = 15) -> bool:
+    """Дошло ли уже наше сообщение. Нужно перед повтором: таймаут не значит «не отправлено»."""
+    needle = (text or "").strip()[:80]
+    if not needle:
+        return False
+    try:
+        msgs = await client.get_messages(username, limit=5)
+    except Exception:  # noqa: BLE001
+        return False
+    now = time.time()
+    for msg in msgs:
+        if not getattr(msg, "out", False):
+            continue
+        if (msg.message or "").strip()[:80] != needle:
+            continue
+        if now - msg.date.timestamp() < minutes * 60:
+            return True
+    return False
 
-    caller(client) делает саму отправку. Флуд и логические отказы не повторяем.
+
+async def send_with_retry(pool: Pool, name: str, target: dict, caller,
+                          verify=None) -> object:
+    """Повторяет отправку при временных сбоях, но не создаёт дублей.
+
+    verify(client) -> bool проверяет, дошло ли сообщение. Если дошло — повтор
+    не нужен: адресат уже получил текст, второй такой же = жалоба и бан.
     """
+    from sender import SendResult
+
     last: BaseException | None = None
     for attempt, delay in enumerate((0, *RETRY_DELAYS), start=1):
         if delay:
@@ -286,6 +310,14 @@ async def send_with_retry(pool: Pool, name: str, target: dict, caller) -> object
             if not is_transient(exc):
                 raise
             last = exc
+            if verify is not None:
+                try:
+                    if await verify(client):
+                        log(f"✅ @{target['username']}: сообщение уже дошло, повтор не нужен")
+                        return SendResult(username=target["username"], ok=True,
+                                          reason="delivered_verified")
+                except Exception:  # noqa: BLE001
+                    pass
     raise last if last else RuntimeError("send failed")
 
 
@@ -379,13 +411,35 @@ async def _send_once(pool: Pool, campaign: dict, accounts: list[dict], acc: dict
     if target is None:
         return "done"
 
+    # Пока адресат не получил окончательный статус, он остаётся в очереди.
+    # Иначе любое исключение (флуд, сеть, блокировка базы) уносит человека навсегда.
+    settled = False
+
+    def settle(state: str, reason: str = "") -> None:
+        nonlocal settled
+        db.close_target(campaign["id"], target["recipient_id"], state, reason, name)
+        settled = True
+
+    try:
+        return await _send_once_body(pool, campaign, accounts, acc, target, settle)
+    finally:
+        if not settled:
+            db.close_target(campaign["id"], target["recipient_id"], "pending",
+                            "returned_after_error", name)
+            db.event("target_returned", name,
+                     f"@{target['username']} вернулся в очередь после сбоя")
+
+
+async def _send_once_body(pool: Pool, campaign: dict, accounts: list[dict], acc: dict,
+                          target: dict, settle) -> str:
+
     # Защита от повторных сообщений: одному и тому же человеку — один раз,
     # если в кампании не разрешено обратное. Исключение — те, кто ответил:
     # им писать повторно нормально, это уже диалог, а не спам.
     if (not campaign.get("allow_repeat")
             and db.sent_before(target["username"])
             and target["username"].lower() not in db.replied_usernames()):
-        db.close_target(campaign["id"], target["recipient_id"], "skipped", "already")
+        settle("skipped", "already")
         db.event("skipped_repeat", "", f"@{target['username']} уже получал сообщение")
         log(f"↩️ @{target['username']} уже получал — пропускаю")
         return "skipped"
@@ -393,7 +447,7 @@ async def _send_once(pool: Pool, campaign: dict, accounts: list[dict], acc: dict
     try:
         client = await pool.get(name)
     except PermissionError as exc:
-        db.close_target(campaign["id"], target["recipient_id"], "pending")
+        settle("pending")
         db.set_account(name, status="paused", paused_until=time.time() + 3600)
         db.event("account_unusable", name, str(exc))
         log(f"⛔ {exc} — аккаунт на паузе")
@@ -424,7 +478,7 @@ async def _send_once(pool: Pool, campaign: dict, accounts: list[dict], acc: dict
 
     if DRY_RUN:
         preview = compose(target["first_name"] or "")
-        db.close_target(campaign["id"], target["recipient_id"], "pending")
+        settle("pending")
         log(f"[dry] {name} → @{target['username']} · {len(preview)} симв. · "
             f"{preview.splitlines()[0][:60]}")
         return "dry"
@@ -434,20 +488,22 @@ async def _send_once(pool: Pool, campaign: dict, accounts: list[dict], acc: dict
                               template_fn=compose, attachment=attachment)
 
     try:
-        result = await send_with_retry(pool, name, target, _do)
+        async def _verify(client) -> bool:
+            return await _already_delivered(client, target["username"], chosen.get("text", ""))
+
+        result = await send_with_retry(pool, name, target, _do, verify=_verify)
     except FloodDetected as exc:
         until = time.time() + exc.seconds
         db.set_account(name, paused_until=until)
         db.event("flood", name, f"пауза {exc.seconds}с на @{target['username']}")
         log(f"⏳ {name}: flood wait {exc.seconds}с — адресат уйдёт с другого аккаунта")
-        return "retry"
+        return "retry"  # адресат вернётся в очередь через finally
 
     db.log_send(campaign["id"], target["username"], name, result.ok, result.reason,
                 variant=chosen["variant"], text=chosen.get("text", ""))
     if result.ok:
         unique.remember(name, campaign["id"], chosen["variant"])
-    db.close_target(campaign["id"], target["recipient_id"],
-                    "sent" if result.ok else "failed", result.reason, name)
+    settle("sent" if result.ok else "failed", result.reason)
     db.bump_attempt(campaign["id"], result.ok)
 
     # Сторож: 3 отказа «закрыт для сообщений» подряд — аккаунт на паузу.
