@@ -110,12 +110,27 @@ def is_transient(exc: BaseException) -> bool:
 async def send_one(client, username: str, my_name: str, template: str, me_id: int | None = None,
                    template_fn=None, attachment: str | None = None) -> SendResult:
     """template_fn(his_name) -> текст: так панель подставляет свои варианты и вступление."""
-    try:
-        user = await client.get_entity(username)
-    except (UsernameNotOccupiedError, UsernameInvalidError, PeerIdInvalidError, ValueError):
-        return SendResult(username, False, "not_found")
-    except FloodWaitError as exc:
-        raise FloodDetected(exc.seconds, username) from exc
+    from panel import peers
+
+    account = getattr(client, "session", None)
+    account = getattr(account, "filename", "") if account else ""
+    account = str(account).replace(".session", "")
+
+    cached = peers.peer(account, username) if account else None
+    if cached is not None:
+        user = cached
+    else:
+        try:
+            user = await client.get_entity(username)
+        except (UsernameNotOccupiedError, UsernameInvalidError, PeerIdInvalidError, ValueError):
+            return SendResult(username, False, "not_found")
+        except FloodWaitError as exc:
+            raise FloodDetected(exc.seconds, username) from exc
+        if account and getattr(user, "access_hash", None):
+            try:
+                peers.remember(account, username, user)
+            except Exception:  # noqa: BLE001
+                pass
 
     if me_id is not None and getattr(user, "id", None) == me_id:
         return SendResult(username, False, "self")

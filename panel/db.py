@@ -131,6 +131,15 @@ CREATE TABLE IF NOT EXISTS dialog_state (
     updated_at TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS peers (
+    account      TEXT NOT NULL,
+    username     TEXT NOT NULL,
+    peer_id      INTEGER NOT NULL,
+    access_hash  INTEGER NOT NULL,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY(account, username)
+);
+
 CREATE TABLE IF NOT EXISTS panel_sessions (
     sid        TEXT PRIMARY KEY,
     expires_at INTEGER NOT NULL,
@@ -204,8 +213,13 @@ CREATE INDEX IF NOT EXISTS idx_targets_state ON campaign_targets(campaign_id, st
 def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=10000")
+    # busy_timeout ставим первым: он снимает часть блокировок сам
+    conn.execute("PRAGMA busy_timeout=15000")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        # база занята другим процессом — режим уже WAL, продолжать можно
+        pass
     return conn
 
 
@@ -311,8 +325,17 @@ def effective_limit(daily_limit: int, warmup_start: str, warmup_days: int = 7,
 
 
 def q(sql: str, params: tuple = ()) -> list[sqlite3.Row]:
-    with connect() as conn:
-        return conn.execute(sql, params).fetchall()
+    import time as _time
+
+    for attempt in range(3):
+        try:
+            with connect() as conn:
+                return conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt == 2:
+                raise
+            _time.sleep(0.3 * (attempt + 1))
+    return []
 
 
 def q1(sql: str, params: tuple = ()):
