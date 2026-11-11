@@ -230,6 +230,10 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             _mark(account, msg.id, "stage_end")
             continue
 
+        if salesperson.needs_human(msg.text or ""):
+            db.unanswered_add(msg.text or "", username=username, account=account,
+                              reason="нужен человек")
+
         if action == "refuse":
             db.block_recipient(username, True)
             db.event("refusal", account, (msg.message or "")[:200])

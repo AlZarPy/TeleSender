@@ -131,6 +131,17 @@ CREATE TABLE IF NOT EXISTS dialog_state (
     updated_at TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS unanswered (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    account    TEXT NOT NULL DEFAULT '',
+    username   TEXT NOT NULL DEFAULT '',
+    question   TEXT NOT NULL,
+    reason     TEXT NOT NULL DEFAULT '',
+    seen       INTEGER NOT NULL DEFAULT 0,
+    seen_at    TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS account_texts (
     account     TEXT NOT NULL,
     campaign_id INTEGER NOT NULL,
@@ -647,6 +658,32 @@ def log_send(campaign_id: int, recipient: str, account: str, ok: bool,
     execute("""INSERT INTO sends(campaign_id, recipient, account, ok, reason, msg_id, variant, text)
                VALUES (?,?,?,?,?,?,?,?)""",
             (campaign_id, recipient, account, int(ok), reason, msg_id, variant, text[:2000]))
+
+
+def unanswered_add(question: str, username: str = "", account: str = "",
+                   reason: str = "нет факта") -> int:
+    """Вопрос, на который у бота нет ответа. Владелец получает его списком."""
+    return execute("""INSERT INTO unanswered(account, username, question, reason)
+                      VALUES(?,?,?,?)""",
+                   (account, username, question.strip()[:500], reason))
+
+
+def unanswered_pending(limit: int = 50) -> list[dict]:
+    return [dict(r) for r in q("""SELECT * FROM unanswered
+                                  WHERE seen=0 ORDER BY id LIMIT ?""", (limit,))]
+
+
+def unanswered_mark(ids: list[int]) -> None:
+    for i in ids:
+        execute("""UPDATE unanswered SET seen=1, seen_at=datetime('now','localtime')
+                   WHERE id=?""", (i,))
+
+
+def unanswered_stats(days: int = 7) -> dict:
+    row = q1("""SELECT COUNT(*) total, SUM(seen=0) fresh FROM unanswered
+                WHERE ts >= datetime('now','localtime', ?)""", (f"-{days} days",))
+    d = dict(row) if row else {}
+    return {"total": int(d.get("total") or 0), "fresh": int(d.get("fresh") or 0)}
 
 
 def account_texts_put(account: str, campaign_id: int, stage: int, texts: list[str]) -> int:

@@ -131,6 +131,10 @@ def compose(history: list[dict], account_name: str, attempts: int = 2,
     # В промпт уходят только релевантные карточки фактов, а не весь корпус
     last_them = next((h["text"] for h in reversed(history) if h["who"] == "them"), "")
     knowledge = facts.context_for(last_them, limit=4)
+
+    # Нет фактов — вопрос уходит владельцу списком, а модель обязана сказать «уточню»
+    if not knowledge and len(last_them) > 3:
+        db.unanswered_add(last_them, account=account_name)
     body = json.dumps({
         "model": DEFAULT_MODEL,
         "messages": [
