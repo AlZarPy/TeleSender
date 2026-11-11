@@ -346,7 +346,7 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     template_body = campaign["template"]
     sender_name = acc["my_name"]
 
-    chosen: dict[str, int] = {"variant": -1}
+    chosen: dict = {"variant": -1, "text": ""}
 
     def compose(his_name: str) -> str:
         # у каждого аккаунта свой набор вариантов: два аккаунта не отправят
@@ -358,7 +358,9 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
         head = message.personalise(message.expand_spintax(intro), sender_name, his_name).strip() if intro else ""
         if head and not head.endswith((".", "!", "?", ":", "…")):
             head += ":"
-        return (head + "\n\n" + body).strip() if head else body.strip()
+        final = (head + "\n\n" + body).strip() if head else body.strip()
+        chosen["text"] = final
+        return final
 
     me_id = None if campaign["allow_self"] else pool.me_ids.get(name)
     attachment = resolve_attachment(campaign.get("attachment") or "")
@@ -384,7 +386,7 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
         return "retry"
 
     db.log_send(campaign["id"], target["username"], name, result.ok, result.reason,
-                variant=chosen["variant"])
+                variant=chosen["variant"], text=chosen.get("text", ""))
     if result.ok:
         unique.remember(name, campaign["id"], chosen["variant"])
     db.close_target(campaign["id"], target["recipient_id"],

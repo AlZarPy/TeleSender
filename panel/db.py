@@ -201,6 +201,7 @@ def _migrate() -> None:
         "sends": {
             "read_at": "TEXT NOT NULL DEFAULT ''",
             "variant": "INTEGER NOT NULL DEFAULT -1",
+            "text": "TEXT NOT NULL DEFAULT ''",
         },
     }
     with connect() as conn:
@@ -609,10 +610,13 @@ def read_stats(minutes: int = 1440) -> dict:
 
 
 def log_send(campaign_id: int, recipient: str, account: str, ok: bool,
-             reason: str = "", msg_id: int = 0, variant: int = -1) -> None:
-    execute("""INSERT INTO sends(campaign_id, recipient, account, ok, reason, msg_id, variant)
-               VALUES (?,?,?,?,?,?,?)""",
-            (campaign_id, recipient, account, int(ok), reason, msg_id, variant))
+             reason: str = "", msg_id: int = 0, variant: int = -1,
+             text: str = "") -> None:
+    """Пишет факт отправки. `text` — что именно ушло: нужно, чтобы при претензии
+    можно было показать сообщение, а не только его номер."""
+    execute("""INSERT INTO sends(campaign_id, recipient, account, ok, reason, msg_id, variant, text)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (campaign_id, recipient, account, int(ok), reason, msg_id, variant, text[:2000]))
 
 
 def variant_taken(account: str, campaign_id: int, variant: int) -> bool:
