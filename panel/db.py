@@ -738,7 +738,8 @@ def fact_upsert(card: dict) -> None:
             (card["id"], card["topic"], card["title"], card["body"],
              card.get("facts", ""), card.get("keywords", ""),
              card.get("source", ""), int(card.get("sensitive", 0))))
-    # внешний контент: индекс перестраивается целиком, карточек десятки
+    # внешний контент без триггеров: после каждой правки перестраиваем индекс,
+    # иначе поиск отдаёт старый текст карточки
     execute("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')")
 
 

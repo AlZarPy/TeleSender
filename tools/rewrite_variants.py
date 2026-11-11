@@ -51,7 +51,7 @@ def api_key() -> str:
 
 
 def ask(prompt: str, model: str, key: str, temperature: float = 0.8) -> str:
-    body = json.dumps({"model": model, "temperature": temperature, "max_tokens": 500,
+    body = json.dumps({"model": model, "temperature": temperature, "max_tokens": 1200,
                        "messages": [{"role": "system", "content": SYSTEM},
                                     {"role": "user", "content": prompt}]}).encode()
     req = urllib.request.Request(API, data=body,
@@ -64,7 +64,7 @@ def ask(prompt: str, model: str, key: str, temperature: float = 0.8) -> str:
 
 def valid(text: str, original: str) -> tuple[bool, str]:
     """Проверки: плейсхолдеры, длина, факты, спам-скор."""
-    if not text or len(text) > 460:
+    if not text or len(text) > 450:
         return False, f"длина {len(text)}"
     for ph in PLACEHOLDERS:
         if ph in original and ph not in text:

@@ -91,6 +91,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", default="", choices=["", "panel"])
     ap.add_argument("--files", default="", help="список файлов через запятую")
+    ap.add_argument("--out", default="docs/sonnet-review.md")
     args = ap.parse_args()
 
     files = [f.strip() for f in args.files.split(",") if f.strip()] or None
@@ -119,7 +120,7 @@ def main() -> int:
         print(f"Sonnet не ответил: {type(exc).__name__}: {str(exc)[:200]}")
         return 1
 
-    out = ROOT / "docs" / "sonnet-review.md"
+    out = ROOT / args.out
     out.write_text("# Разовый аудит Claude Sonnet 5.5\n\n" + text + "\n", encoding="utf-8")
     print(text)
     print(f"\nсохранено: {out}")

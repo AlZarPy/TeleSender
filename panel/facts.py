@@ -160,7 +160,7 @@ CARDS: list[dict] = [
 
     {"id": "limit_fee", "topic": "границы",
      "title": "Вопрос про взносы и оплату",
-     "body": "Организационные вопросы — взносы, условия участия, документы — уточняет куратор-человек. Я по ним не консультирую.",
+     "body": "Вопросы оплаты, документов и условий участия передаю куратору-человеку. Я по ним не консультирую.",
      "facts_list": [],
      "keywords": "взнос аренда 3000 оплата платить сбор оргвзнос условия участия",
      "source": "решение владельца 11.11.2026: взнос в рассылке не упоминать", "sensitive": 1},
@@ -175,7 +175,7 @@ CARDS: list[dict] = [
     {"id": "school_lessons", "topic": "обучение",
      "title": "Какие занятия в курсе",
      "body": "Восемь занятий: AI-экосистема и промптинг, выбор ниши и анализ конкурентов, бизнес-модель и финмодель, продажи и AI-продавец, найм и AI-HR, инвестиции и партнёрство. Последнее занятие — защита работы.",
-     "facts_list": ["восемь занятий"],
+     "facts_list": [],
      "keywords": "какие занятия программа уроки чему учат список тем",
      "source": "презентации уроков 1, 2, 3, 5, 6, 8", "sensitive": 0},
 
@@ -259,9 +259,16 @@ def check_numbers(text: str) -> list[dict]:
     allowed = allowed_facts()
     issues: list[dict] = []
 
+    def known(value: str) -> bool:
+        """Совпадение по границам токена: «2» не должно совпадать с «12»."""
+        import re as _re
+
+        pattern = r"(?<![\w])" + _re.escape(value) + r"(?![\w])"
+        return any(_re.search(pattern, a) for a in allowed)
+
     for m in _TIME.finditer(text):
         value = f"{m.group(1)}:{m.group(2)}"
-        if not any(value in a for a in allowed):
+        if not known(value):
             issues.append({"code": "fact_time", "detail": f"время {value} нет в базе фактов"})
 
     for m in _DATE.finditer(text):
@@ -269,11 +276,11 @@ def check_numbers(text: str) -> list[dict]:
         parts = found.split()
         num = parts[0]
         mon = parts[1][:6] if len(parts) > 1 else ""
-        if not any(num in a and mon in a for a in allowed):
+        if not any(known(num) and mon in a for a in allowed):
             issues.append({"code": "fact_date", "detail": f"дата «{m.group(0)}» нет в базе фактов"})
 
     for m in _ADDR.finditer(text):
-        if not any(str(m.group(1)) in a for a in allowed):
+        if not known(str(m.group(1))):
             issues.append({"code": "fact_address", "detail": f"дом {m.group(1)} нет в базе фактов"})
 
     return issues
