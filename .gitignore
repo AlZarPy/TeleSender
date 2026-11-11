@@ -43,3 +43,20 @@ backups/
 proxies*.txt
 !proxies.example.txt
 pending_code.json
+
+# секреты и рабочие данные: никогда не коммитим
+proxies*.txt
+!proxies.example.txt
+*.bak*
+*.session
+*.session-journal
+config.txt
+.env
+*.db
+*.db-wal
+*.db-shm
+pending_code.json
+report_data.json
+*.jsonl
+reports/
+logs/
