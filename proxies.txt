@@ -24,3 +24,9 @@ pechkin08;socks5://support0mhx4:5zIaWLYTKm@82.140.183.84:50101
 pechkin09;socks5://support0mhx4:5zIaWLYTKm@151.241.39.43:50101
 pechkin10;socks5://support0mhx4:5zIaWLYTKm@82.140.183.65:50101
 pechkin11;socks5://14af0e607b39a:60e2a0c1d8@171.33.240.49:12324
+
+acct_a1;socks5://support0mhx4:5zIaWLYTKm@82.140.183.10:50101
+acct_a2;socks5://support0mhx4:5zIaWLYTKm@82.140.183.216:50101
+acct_a3;socks5://support0mhx4:5zIaWLYTKm@151.241.39.121:50101
+acct_a4;socks5://support0mhx4:5zIaWLYTKm@82.140.183.229:50101
+acct_a5;socks5://support0mhx4:5zIaWLYTKm@82.140.183.7:50101
