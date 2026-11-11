@@ -14,6 +14,7 @@ import os
 import secrets
 import socket
 import time
+import uuid
 from datetime import datetime
 import urllib.parse
 from pathlib import Path
@@ -134,23 +135,41 @@ def ensure_secrets() -> tuple[str, str]:
 PANEL_PASSWORD, PANEL_SECRET = ensure_secrets()
 
 
-def _sign(ts: str) -> str:
-    mac = hmac.new(PANEL_SECRET.encode(), ts.encode(), hashlib.sha256).digest()
+def _sign(ts: str, sid: str) -> str:
+    mac = hmac.new(PANEL_SECRET.encode(), f"{ts}:{sid}".encode(), hashlib.sha256).digest()
     return base64.urlsafe_b64encode(mac).decode().rstrip("=")
 
 
-def make_cookie() -> str:
+def new_session() -> str:
+    """Новая сессия: случайный номер плюс время, оба подписаны.
+
+    Номер хранится в базе: по нему сессию можно отозвать — выход из панели
+    и смена пароля гасят её сразу, а не через 30 дней.
+    """
     ts = str(int(time.time()))
-    return f"{ts}.{_sign(ts)}"
+    sid = uuid.uuid4().hex
+    db.set_session(sid, int(ts) + SESSION_TTL)
+    return f"{ts}.{sid}.{_sign(ts, sid)}"
+
+
+def make_cookie() -> str:
+    return new_session()
 
 
 def cookie_valid(value: str | None) -> bool:
-    if not value or "." not in value:
+    if not value or value.count(".") != 2:
         return False
-    ts, sig = value.split(".", 1)
+    ts, sid, sig = value.split(".", 2)
     if not ts.isdigit() or time.time() - int(ts) > SESSION_TTL:
         return False
-    return hmac.compare_digest(sig, _sign(ts))
+    if not hmac.compare_digest(sig, _sign(ts, sid)):
+        return False
+    return db.session_alive(sid)
+
+
+def drops_sessions() -> None:
+    """Гасит все сессии: вызывается при выходе и при смене пароля."""
+    db.drop_sessions()
 
 
 def current_user(request: Request) -> str:
@@ -240,18 +259,42 @@ def login_page(request: Request, error: str = ""):
     return render(request, "login.html", error=error)
 
 
+LOGIN_FAILS: dict[str, list[float]] = {}
+LOGIN_WINDOW = 600          # 10 минут
+LOGIN_LIMIT = 5             # попыток на адрес за окно
+
+
+def login_allowed(ip: str) -> bool:
+    now = time.time()
+    fails = [t for t in LOGIN_FAILS.get(ip, []) if now - t < LOGIN_WINDOW]
+    LOGIN_FAILS[ip] = fails
+    return len(fails) < LOGIN_LIMIT
+
+
+def login_note_fail(ip: str) -> None:
+    LOGIN_FAILS.setdefault(ip, []).append(time.time())
+
+
 @app.post("/login")
 def login_submit(request: Request, password: str = Form("")):
+    ip = request.client.host if request.client else "?"
+    if not login_allowed(ip):
+        db.event("login_blocked", "", f"{ip}: слишком много попыток")
+        raise HTTPException(429, "слишком много попыток входа, подождите 10 минут")
     if not hmac.compare_digest(password.strip(), PANEL_PASSWORD):
+        login_note_fail(ip)
         db.event("login_failed", "", request.client.host if request.client else "")
         return RedirectResponse("/login?error=1", status_code=303)
+    LOGIN_FAILS.pop(ip, None)
     resp = RedirectResponse("/", status_code=303)
-    resp.set_cookie(COOKIE, make_cookie(), max_age=SESSION_TTL, httponly=True, samesite="lax")
+    resp.set_cookie(COOKIE, new_session(), max_age=SESSION_TTL,
+                    httponly=True, samesite="lax")
     return resp
 
 
 @app.get("/logout")
 def logout():
+    db.drop_sessions()          # кука, украденная до выхода, больше не работает
     resp = RedirectResponse("/login", status_code=303)
     resp.delete_cookie(COOKIE)
     return resp
@@ -443,14 +486,14 @@ def campaign_add_recipients(cid: int, usernames: str = Form(""), all_base: int =
                                answered_only=bool(answered_only))
         return RedirectResponse(f"/campaigns/{cid}?added={added}", status_code=303)
     if all_base:
-        added = db.add_targets(cid)
+        added = db.add_targets(cid, exclude_sent=not bool(row["allow_repeat"]))
     else:
         names = [normalise(line) for line in usernames.replace(",", "\n").splitlines()]
         names = [n for n in names if n]
         if not names:
             return RedirectResponse(f"/campaigns/{cid}", status_code=303)
         db.upsert_recipients([(n, "", "") for n in names])
-        added = db.add_targets(cid, names)
+        added = db.add_targets(cid, names, exclude_sent=not bool(row["allow_repeat"]))
     return RedirectResponse(f"/campaigns/{cid}?added={added}", status_code=303)
 
 

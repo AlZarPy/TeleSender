@@ -131,6 +131,12 @@ CREATE TABLE IF NOT EXISTS dialog_state (
     updated_at TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS panel_sessions (
+    sid        TEXT PRIMARY KEY,
+    expires_at INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
 CREATE TABLE IF NOT EXISTS unanswered (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     ts         TEXT NOT NULL DEFAULT (datetime('now','localtime')),
@@ -676,6 +682,24 @@ def log_send(campaign_id: int, recipient: str, account: str, ok: bool,
             (campaign_id, recipient, account, int(ok), reason, msg_id, variant, text[:2000]))
 
 
+def set_session(sid: str, expires_at: int) -> None:
+    execute("""INSERT INTO panel_sessions(sid, expires_at) VALUES(?,?)
+               ON CONFLICT(sid) DO UPDATE SET expires_at=excluded.expires_at""",
+            (sid, int(expires_at)))
+
+
+def session_alive(sid: str) -> bool:
+    row = q1("""SELECT 1 AS x FROM panel_sessions
+                WHERE sid=? AND expires_at > ?""", (sid, int(time.time())))
+    return row is not None
+
+
+def drop_sessions() -> int:
+    row = q1("SELECT COUNT(*) n FROM panel_sessions")
+    execute("DELETE FROM panel_sessions")
+    return int(row["n"]) if row else 0
+
+
 def unanswered_add(question: str, username: str = "", account: str = "",
                    reason: str = "нет факта") -> int:
     """Вопрос, на который у бота нет ответа. Владелец получает его списком."""
@@ -1066,7 +1090,7 @@ def clear_events(keep_sends: bool = True) -> tuple[int, int]:
 
 # ── состав кампании: добавление из общей базы ──────────────────────────────
 def add_targets(campaign_id: int, usernames: list[str] | None = None,
-                only_active: bool = True) -> int:
+                only_active: bool = True, exclude_sent: bool = False) -> int:
     """Добавляет получателей в кампанию. usernames=None — всех активных из базы.
 
     Уже добавленных не дублируем (ключ campaign_id+recipient_id).
@@ -1080,6 +1104,10 @@ def add_targets(campaign_id: int, usernames: list[str] | None = None,
         params.extend(usernames)
     if only_active:
         where.append("status='active'")
+    if exclude_sent:
+        # тем, кому уже писали, второй раз не пишем — это прямая дорога к жалобе
+        where.append("NOT EXISTS (SELECT 1 FROM sends s "
+                     "WHERE LOWER(s.recipient)=LOWER(recipients.username))")
     sql = "SELECT id FROM recipients" + (" WHERE " + " AND ".join(where) if where else "")
 
     added = 0
