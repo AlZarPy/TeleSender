@@ -49,8 +49,12 @@ async def no_stale_pages(request: Request, call_next):
 
 
 @app.get("/healthz", response_class=JSONResponse)
-def healthz():
-    """Быстрая проверка здоровья: версия, база, воркер, скорость и очередь."""
+def healthz(request: Request):
+    """Коротко для всех, подробно — только по входу в панель."""
+    brief = {"ok": True, "build": BUILD if "BUILD" in globals() else "dev"}
+    if not cookie_valid(request.cookies.get(COOKIE)):
+        return brief
+
     alive, worker = db.worker_alive()
     funnel = db.global_funnel()
     try:
@@ -424,8 +428,12 @@ def base_remove(username: str = Form(...), user: str = Depends(current_user)):
 def campaign_text(cid: int, template: str = Form(""), intro: str = Form(""),
                   action: str = Form("save"), user: str = Depends(current_user)):
     """Сохраняет текст кампании; action=prepare — ещё и превращает слэши в варианты."""
-    if db.q1("SELECT id FROM campaigns WHERE id=?", (cid,)) is None:
+    camp = db.q1("SELECT id, status FROM campaigns WHERE id=?", (cid,))
+    if camp is None:
         raise HTTPException(404)
+    if camp["status"] == "running":
+        # иначе часть очереди уйдёт со старым текстом, часть с новым — и A/B станет мусором
+        raise HTTPException(409, "сначала поставьте кампанию на паузу")
     if action == "synonyms":
         body = synonyms.enrich(template)
         head = synonyms.enrich(intro)

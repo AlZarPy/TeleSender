@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import re
 from datetime import datetime
 
@@ -102,7 +103,9 @@ async def tick(pool, accounts: list[dict], hours: float = 20.0) -> list[str]:
             res = await check(client, name)
             lines.append(f"{name}: {res['online']} / @SpamBot {res.get('spam', '—')}")
             if res.get("spam") == "ОГРАНИЧЕН":
-                db.set_account(name, status="paused", paused_until=0)
+                # paused_until=0 читался как «пауза истекла» и аккаунт возвращался
+                # в работу на следующем проходе — ставим сутки
+                db.set_account(name, status="paused", paused_until=time.time() + 24 * 3600)
         except Exception as exc:  # noqa: BLE001
             db.event("check_error", name, f"{type(exc).__name__}: {str(exc)[:80]}")
         await asyncio.sleep(3)
