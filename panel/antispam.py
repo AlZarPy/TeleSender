@@ -28,6 +28,9 @@ SHORTENER = re.compile(r"bit\.ly|clck\.ru|goo\.gl|tinyurl|vk\.cc|is\.gd", re.I)
 EMOJI = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF]")
 
 
+PLACEHOLDER = re.compile(r"<[^>]{1,40}>|\{\{[^}]{1,40}\}\}")
+
+
 def score(text: str) -> dict:
     t = (text or "").strip()
     head = t[:120]
@@ -59,7 +62,9 @@ def score(text: str) -> dict:
     if "{" not in first_line and not re.search(r"[А-ЯЁ][а-яё]+", first_line[:40]):
         points += 1
         issues.append({"code": "no_name", "w": 1, "detail": "в первой строке нет имени"})
-    if re.search(r"[A-ZА-ЯЁ]{5,}", t):
+    # плейсхолдеры (<ССЫЛКА>, <ЕгоИмя>) капсом не считаем: при отправке там имя или ссылка
+    without_ph = PLACEHOLDER.sub(" ", t)
+    if re.search(r"[A-ZА-ЯЁ]{5,}", without_ph):
         points += 2
         issues.append({"code": "caps", "w": 2, "detail": "слова капсом"})
     emoji = EMOJI.findall(t)
