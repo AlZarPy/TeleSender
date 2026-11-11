@@ -143,6 +143,10 @@ async def send_one(client, username: str, my_name: str, template: str, me_id: in
 
     if _db.sent_same_recently(username, text, hours=24):
         return SendResult(username, False, "duplicate")
+    if _db.sent_similar_recently(username, text, hours=24):
+        return SendResult(username, False, "duplicate_similar")
+    if _db.sent_too_soon(username, minutes=10):
+        return SendResult(username, False, "too_soon")
 
     if attachment:
         if len(text) > 1024:

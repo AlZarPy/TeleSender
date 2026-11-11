@@ -56,8 +56,13 @@ async def send_one(account: str, text: str, target: str, cfg: dict, px: dict,
         body = message.personalise(expanded, me.first_name or "", his)
         if dry:
             return f"{account} ({me.first_name}): [dry] {body[:80]}…"
-        if db.sent_same_recently(target, body, hours=24) and not force:
-            return f"{account}: этот текст уже уходил @{target} — не отправляю"
+        if not force:
+            if db.sent_same_recently(target, body, hours=24):
+                return f"{account}: этот текст уже уходил @{target} — не отправляю"
+            if db.sent_similar_recently(target, body, hours=24):
+                return f"{account}: похожий текст уже был @{target} — не отправляю"
+            if db.sent_too_soon(target, minutes=10):
+                return f"{account}: @{target} писали меньше 10 минут назад — жду"
         sent = await client.send_message(entity, body, parse_mode="md", link_preview=False)
         db.log_send(0, target, account, True, "test_to_self", sent.id,
                     variant=1000, text=body)

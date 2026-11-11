@@ -15,14 +15,14 @@ from pathlib import Path
 
 from telethon.tl.types import User
 
-from . import db, salesperson, stages
+from . import db, message, salesperson, stages
 
 POSTER = Path("media/poster-terra.jpg")
 
 # Пауза перед ответом: человек не отвечает через секунду. Ровный интервал тоже
 # подозрителен, поэтому разброс большой, а иногда ответ «задерживается».
-REPLY_DELAY = (20, 60)
-LONG_DELAY = (60, 120)
+REPLY_DELAY = (6, 18)
+LONG_DELAY = (12, 20)
 LONG_CHANCE = 0.08
 
 
@@ -31,7 +31,7 @@ def reply_delay(rng: random.Random | None = None) -> int:
     delay = rng.randint(*REPLY_DELAY)
     if rng.random() < LONG_CHANCE:
         delay = rng.randint(*LONG_DELAY)
-    cap = int(os.getenv("SENDERX_REPLY_DELAY_MAX", "120"))
+    cap = int(os.getenv("SENDERX_REPLY_DELAY_MAX", "20"))
     return max(0, min(delay, cap))
 
 
@@ -121,21 +121,49 @@ def explain_text() -> str:
             "где ИИ снимает рутину: продажи, маркетинг, автоматизация.")
 
 
-STAGE2_CAMPAIGN = int(__import__("os").environ.get("SENDERX_STAGE2_CAMPAIGN", "0") or 0)
+def stage2_campaign() -> int:
+    """Где лежит утверждённый текст Б: сначала env, иначе ищем кампанию по имени."""
+    import os
+
+    stored = db.meta_get("stage2_campaign") or ""
+    if stored.isdigit() and int(stored) > 0:
+        return int(stored)
+    cid = int(os.environ.get("SENDERX_STAGE2_CAMPAIGN", "0") or 0)
+    if cid:
+        return cid
+    row = db.q1("""SELECT id FROM campaigns WHERE name LIKE '%второе сообщение%'
+                   ORDER BY id DESC LIMIT 1""")
+    return int(row["id"]) if row else 0
 
 
-def stage2_text(account: str, campaign_id: int | None = None) -> str:
+STAGE2_CAMPAIGN = 0
+
+
+LINK = __import__("os").environ.get("SENDERX_LINK", "https://t.me/terra_main_bot")
+
+
+def stage2_text(account: str, campaign_id: int | None = None,
+                my_name: str = "", his_name: str = "") -> str:
     """Второе сообщение: переписанный под аккаунт вариант, иначе шаблон.
 
     Переписанные варианты лежат в `account_texts` с stage=2 и получают номер
     от 1000, поэтому не сталкиваются со спинтаксисом первого этапа.
     """
-    cid = campaign_id or STAGE2_CAMPAIGN
+    cid = campaign_id or stage2_campaign()
     if cid:
         for row in db.account_texts_get(account, cid, 2):
             if not db.variant_taken(account, cid, int(row["variant"])):
                 db.mark_variant(account, cid, int(row["variant"]))
-                return row["text"]
+                body = message.fill_link(row["text"], LINK)
+                body = message.expand_spintax(body)
+                return message.personalise(body, my_name, his_name)
+
+        # переписанных нет — берём утверждённый шаблон кампании
+        camp = db.q1("SELECT template FROM campaigns WHERE id=?", (cid,))
+        if camp and (camp["template"] or "").strip():
+            body = message.fill_link(camp["template"], LINK)
+            body = message.expand_spintax(body)
+            return message.personalise(body, my_name, his_name)
     return announce_text(account)
 
 
@@ -202,21 +230,46 @@ def decided(text: str) -> str:
     return "silence"
 
 
-def announced_before(username: str) -> bool:
-    """Анонс с постером в этом диалоге уже отправляли — второй раз нельзя."""
-    return bool(db.q1(
-        "SELECT 1 FROM events WHERE kind IN ('followup','sales_reply') "
-        "AND detail LIKE ? AND detail LIKE '%announce%'", (f"%@{username}%",)))
+def announced_before(username: str, since: float | None = None) -> bool:
+    """Анонс уже отправляли — но только если это было после нашего последнего касания.
+
+    Иначе старый анонс (в том числе ошибочный) навсегда блокирует новое сообщение
+    этому же человеку в новой волне.
+    """
+    from datetime import datetime as _dt
+
+    rows = db.q("""SELECT ts FROM events
+                   WHERE kind IN ('followup','sales_reply')
+                     AND detail LIKE ? AND detail LIKE '%announce%'""",
+                (f"%@{username}%",))
+    if not rows:
+        return False
+    if not since:
+        return True
+    for row in rows:
+        try:
+            stamp = _dt.fromisoformat(row["ts"]).timestamp()
+        except (TypeError, ValueError):
+            continue
+        if stamp >= since:
+            return True
+    return False
 
 
-def cooling(username: str, hours: float | None = None) -> bool:
+def cooling(username: str, hours: float | None = None, incoming_at: float | None = None) -> bool:
     """Не отвечали ли этому человеку только что. По умолчанию — сутки покоя."""
     import os
     import time
 
     limit = hours if hours is not None else float(os.getenv("SENDERX_FOLLOWUP_COOLDOWN_H", "12"))
     row = db.q1("SELECT last_at FROM followup_cooldown WHERE username=?", (username,))
-    return bool(row) and (time.time() - float(row["last_at"])) < limit * 3600
+    if not row:
+        return False
+    last = float(row["last_at"])
+    # человек написал позже, чем мы отвечали — значит это новый заход, отвечаем
+    if incoming_at is not None and incoming_at > last:
+        return False
+    return (time.time() - last) < limit * 3600
 
 
 def mark_cooling(username: str) -> None:
@@ -264,8 +317,17 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             continue
         if _seen(account, msg.id):
             continue
-        action = decided(msg.text or "")
         username = (sender.username or f"id{sender.id}").lower()
+
+        # ответ должен быть новее нашего последнего сообщения:
+        # иначе старые реплики (в том числе до рассылки) принимаются за свежие
+        msg_ts = msg.date.timestamp() if msg.date else 0.0
+        last_out = db.last_send_at(account, username)
+        if last_out and msg_ts and msg_ts <= last_out:
+            _mark(account, msg.id, "old")
+            continue
+
+        action = decided(msg.text or "")
         stage = stages.update(username, msg.text or "")
         if stage == "objection":
             db.event("objection", account, (msg.text or "")[:200])
@@ -278,7 +340,8 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
         if action != "silence" and not allowed(username):
             _mark(account, msg.id, "skipped")
             continue
-        if action != "silence" and cooling(username):
+        if action != "silence" and cooling(username,
+                                          incoming_at=msg.date.timestamp() if msg.date else None):
             _mark(account, msg.id, "cooling")
             db.event("followup_cooling", account, f"@{username} — недавно отвечали")
             continue
@@ -347,7 +410,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             lines.append(f"{account}: ответил живьём @{username}")
             continue
 
-        if action == "announce" and announced_before(username):
+        if action == "announce" and announced_before(username, since=last_out):
             _mark(account, msg.id, "announce_dup")
             db.event("announce_skipped", account, f"@{username} — анонс уже отправляли")
             continue
@@ -360,7 +423,9 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
                     sender,
                     f"Принял: {(msg.text or '').strip().lower()}. "
                     "Соберу 3 сценария под эту сферу и пришлю следом. "
-                    "Пока — что будет 13 ноября: " + stage2_text(account),
+                    "Пока — что будет 13 ноября: " + stage2_text(
+                        account, my_name=me.first_name or "",
+                        his_name=getattr(sender, "first_name", "") or ""),
                     parse_mode="md", link_preview=False)
             except Exception as exc:  # noqa: BLE001
                 db.event("followup_error", account, f"{type(exc).__name__}: {str(exc)[:80]}")
@@ -371,12 +436,15 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             continue
 
         await ready_to_reply(client, sender, account, username)
-        stage2 = stage2_text(account)
+        his_name = getattr(sender, "first_name", "") or ""
+        stage2 = stage2_text(account, my_name=me.first_name or "", his_name=his_name)
         await typing_before_send(client, sender, stage2, account, username)
         try:
             if action == "announce" and POSTER.exists():
-                await client.send_file(sender, str(POSTER), caption=stage2,
-                                       parse_mode="md", link_preview=False)
+                sent = await client.send_file(sender, str(POSTER), caption=stage2,
+                                              parse_mode="md", link_preview=False)
+                db.log_send(0, username, account, True, "announce",
+                            getattr(sent, "id", 0), variant=0, text=stage2)
             else:
                 await client.send_message(sender, explain_text())
         except Exception as exc:  # noqa: BLE001

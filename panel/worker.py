@@ -575,6 +575,7 @@ async def main_async(args) -> int:
         return [a for a in db.accounts_with_config(accounts_cfg)
                 if a.get("proxy") and a.get("status") == "active"]
     last_reply_scan = 0.0
+    last_quick_followup = 0.0
     last_read_scan = 0.0
     last_checks_scan = 0.0
     last_warmup = 0.0
@@ -595,6 +596,19 @@ async def main_async(args) -> int:
             if promoted:
                 log(f"по расписанию стартовало кампаний: {promoted}")
 
+            # Быстрый слух: только аккаунты, которые писали за сутки — их ответа и ждут.
+            # Полный обход остаётся раз в 2 минуты, чтобы не тратить лимиты Telegram.
+            quick_gap = int(os.environ.get("SENDERX_FOLLOWUP_SCAN", "25"))
+            if not args.once and time.time() - last_quick_followup > quick_gap:
+                last_quick_followup = time.time()
+                recent = db.recent_send_accounts(24)
+                if recent:
+                    quick = [a for a in live_accounts() if a["session_name"] in recent]
+                    try:
+                        await asyncio.wait_for(followup.tick(pool, quick), timeout=300)
+                    except Exception as exc:  # noqa: BLE001
+                        db.event("followup_quick_error", "", f"{type(exc).__name__}: {str(exc)[:80]}")
+
             # прогрев подписками: интервал плавает 20–60 минут, иначе все подписки
             # уходят пачкой в первые часы, а это ровно тот ритм, что ловит антиспам
             warmup_gap = int(os.environ.get("SENDERX_WARMUP_GAP", "1200"))
@@ -606,10 +620,18 @@ async def main_async(args) -> int:
                     accs_now = [a for a in live_accounts()
                                 if (db.account_group(a["session_name"]) or "") != "personal"]
                     log(f"🌱 прогрев подписками: {len(accs_now)} аккаунтов")
-                    actions = await asyncio.wait_for(
-                        warmup.tick(pool, accs_now), timeout=600)
-                    if actions:
-                        log("🌱 прогрев: " + ", ".join(actions))
+                    async def _warm() -> None:
+                        try:
+                            actions = await asyncio.wait_for(
+                                warmup.tick(pool, accs_now), timeout=600)
+                            if actions:
+                                log("🌱 прогрев: " + ", ".join(actions))
+                        except Exception as exc:  # noqa: BLE001
+                            db.event("warmup_error", "", str(exc)[:120])
+
+                    _warm_task = asyncio.create_task(_warm())
+                    _BACKGROUND.add(_warm_task)
+                    _warm_task.add_done_callback(_BACKGROUND.discard)
                 except Exception as exc:  # noqa: BLE001
                     db.event("warmup_error", "", str(exc)[:120])
 

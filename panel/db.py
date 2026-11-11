@@ -228,6 +228,24 @@ def init() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
     _migrate()
+    _fix_send_times()
+
+
+def _fix_send_times() -> None:
+    """Переносит старые отметки отправок из UTC в локальное время.
+
+    Таблица sends создавалась с datetime('now') — UTC, а всё остальное пишется
+    в локальном времени. Из-за смеси «за сегодня» и кулдауны считались неверно.
+    """
+    if q1("SELECT value FROM meta WHERE key='send_ts_fixed'"):
+        return
+    row = q1("SELECT (julianday('now','localtime') - julianday('now')) * 86400 AS delta")
+    delta = int((row["delta"] if row else 0) or 0)
+    if delta:
+        execute("UPDATE sends SET ts = datetime(ts, ?)",
+                (f"{'+' if delta > 0 else ''}{delta} seconds",))
+    execute("""INSERT INTO meta(key, value) VALUES('send_ts_fixed', ?)
+               ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (str(delta),))
 
 
 def _migrate() -> None:
@@ -699,6 +717,52 @@ def read_stats(minutes: int = 1440) -> dict:
             "read_share": round(read_cnt / total, 3) if total else 0.0}
 
 
+def last_send_at(account: str, recipient: str) -> float:
+    """Когда этот аккаунт последний раз писал этому человеку (epoch)."""
+    row = q1("""SELECT MAX(ts) t FROM sends
+                WHERE account=? AND LOWER(recipient)=LOWER(?) AND ok=1""",
+             (account, recipient.lstrip("@")))
+    if not row or not row["t"]:
+        return 0.0
+    from datetime import datetime as _dt
+
+    try:
+        return _dt.fromisoformat(row["t"]).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def sent_too_soon(recipient: str, minutes: int = 10) -> bool:
+    """Писали ли этому человеку что-нибудь только что (по умолчанию — 10 минут).
+
+    Защита от серии сообщений подряд: даже разные тексты в течение пары минут
+    выглядят как спам-бот и раздражают сильнее, чем одно лишнее сообщение.
+    """
+    row = q1("""SELECT 1 AS x FROM sends
+                WHERE LOWER(recipient)=LOWER(?) AND ok=1
+                  AND ts >= datetime('now','localtime', ?)
+                LIMIT 1""", (recipient.lstrip("@"), f"-{max(1, minutes)} minutes"))
+    return row is not None
+
+
+def sent_similar_recently(recipient: str, text: str, hours: int = 24,
+                          ratio: float = 0.8) -> bool:
+    """Похожий текст уже уходил этому человеку? Сравниваем не буквально, а по смыслу."""
+    from difflib import SequenceMatcher
+
+    needle = (text or "").strip()[:300].lower()
+    if len(needle) < 40:
+        return False
+    for row in q("""SELECT text FROM sends
+                    WHERE LOWER(recipient)=LOWER(?) AND ok=1
+                      AND ts >= datetime('now','localtime', ?)""",
+                 (recipient.lstrip("@"), f"-{hours} hours")):
+        other = (row["text"] or "").strip()[:300].lower()
+        if other and SequenceMatcher(None, needle, other).ratio() >= ratio:
+            return True
+    return False
+
+
 def sent_same_recently(recipient: str, text: str, hours: int = 24) -> bool:
     """Уже отправляли этому человеку этот же текст недавно?
 
@@ -721,8 +785,8 @@ def log_send(campaign_id: int, recipient: str, account: str, ok: bool,
              text: str = "") -> None:
     """Пишет факт отправки. `text` — что именно ушло: нужно, чтобы при претензии
     можно было показать сообщение, а не только его номер."""
-    execute("""INSERT INTO sends(campaign_id, recipient, account, ok, reason, msg_id, variant, text)
-               VALUES (?,?,?,?,?,?,?,?)""",
+    execute("""INSERT INTO sends(campaign_id, recipient, account, ok, reason, msg_id, variant, text, ts)
+               VALUES (?,?,?,?,?,?,?,?, datetime('now','localtime'))""",
             (campaign_id, recipient, account, int(ok), reason, msg_id, variant, text[:2000]))
 
 
@@ -742,6 +806,14 @@ def drop_sessions() -> int:
     row = q1("SELECT COUNT(*) n FROM panel_sessions")
     execute("DELETE FROM panel_sessions")
     return int(row["n"]) if row else 0
+
+
+def recent_send_accounts(hours: int = 24) -> set[str]:
+    """Аккаунты, которые писали за последние часы: только их и надо часто слушать."""
+    rows = q("""SELECT DISTINCT account FROM sends
+                WHERE ok=1 AND account<>'' AND ts >= datetime('now','localtime', ?)""",
+             (f"-{hours} hours",))
+    return {r["account"] for r in rows}
 
 
 def unanswered_add(question: str, username: str = "", account: str = "",
