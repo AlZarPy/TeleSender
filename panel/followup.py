@@ -106,6 +106,14 @@ OBJECTION = re.compile(r"далек|не\s*могу|нет\s*врем|дорог
 SOFT = re.compile(r"(?<![а-яa-z])(спасибо|благодарю|окей|ок|понял[аи]?|понятно|ясно|хорошо|принял[аи]?|договорились)(?![а-яa-z])", re.I)
 ASK = re.compile(r"сколько|цена|стоит|бесплатн|где\s|адрес|во\s*сколько|регистрац", re.I)
 
+# Короткое согласие: «да», «+», «ок», «интересно», «хорошо» и прочие синонимы.
+# Владелец просил считать их тем же, что «да» — иначе бот молчит на живом интересе.
+YES_WORDS = {
+    "да", "ага", "угу", "ок", "окей", "ok", "okay", "хорошо", "интересно", "конечно",
+    "давай", "давайте", "хочу", "пришли", "пришлите", "скинь", "скиньте", "присылай",
+    "присылайте", "плюс", "+", "+1", "👍", "yes", "yep", "да, интересно", "да интересно",
+}
+
 
 def explain_text() -> str:
     return ("Имел в виду сферу, в которой вы работаете — опт, услуги, стройка, "
@@ -141,6 +149,27 @@ def announce_text(account: str) -> str:
             f"{tail.strip() or 'Написать куратору: ' + TICKET}")
 
 
+def is_yes(text: str) -> bool:
+    """Короткий утвердительный ответ: «да», «+», «ок», «интересно» и синонимы."""
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    clean = re.sub(r"[!.?,…\s]+$", "", low).strip()
+    if clean in {"нет", "не", "неа", "no", "nope"}:
+        return False
+    if clean in YES_WORDS:
+        return True
+    # «да, интересно», «ок, давайте», «да пришлите»
+    words = re.findall(r"[а-яёa-z+]+", clean)
+    # «ок, понял» / «да, ясно» — это подтверждение приёма, а не согласие:
+    # такие ответы оставляем без реакции, иначе бот шлёт анонс тому, кто просто кивнул
+    if {"понял", "поняла", "понятно", "ясно", "принял", "приняла"} & set(words):
+        return False
+    if words and words[0] in {"да", "ок", "окей", "конечно", "давай", "давайте"} and len(words) <= 4:
+        return True
+    return False
+
+
 def decided(text: str) -> str:
     """'refuse' | 'explain' | 'announce' | 'niche' | 'silence'."""
     t = (text or "").strip()
@@ -148,6 +177,16 @@ def decided(text: str) -> str:
         return "silence"
     if REFUSE.search(t):
         return "refuse"
+    # «нет, спасибо» — отказ, а не вежливое молчание
+    if t.strip().lower().startswith("нет") and len(t) <= 40:
+        return "refuse"
+    if re.fullmatch(r"(нет|не|неа|no|nope)\W*", t.strip(), re.I):
+        return "refuse"
+    # «нет, спасибо» — это отказ, а не вежливое молчание
+    if re.match(r"^\s*нет", t, re.I) and len(t) <= 40:
+        return "refuse"
+    if is_yes(t):
+        return "announce"
     if CONFUSED.search(t):
         return "explain"
     if AGREE.search(t) or ASK.search(t):
