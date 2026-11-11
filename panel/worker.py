@@ -53,7 +53,10 @@ def resolve_attachment(value: str) -> str | None:
     for path in candidates:
         if path.exists():
             return str(path)
-    return value  # пусть Telethon скажет, что файла нет
+    # файла нет: возвращаем None, чтобы кампания остановилась, а не тратила
+    # весь список получателей на не-транзиентных ошибках
+    db.event("attachment_missing", "", f"нет файла вложения: {value[:120]}")
+    return None
 
 
 def log(message: str) -> None:
@@ -210,9 +213,14 @@ class Pool:
 
 
 def account_capacity(name: str, limit: int) -> int:
-    """Сколько ещё можно отправить этим аккаунтом сегодня."""
+    """Сколько ещё можно отправить этим аккаунтом сегодня.
+
+    Считаем все попытки, а не только успешные: Telegram ограничивает по попыткам,
+    поэтому отказы (флуд, приватность, «не найден») тоже съедают квоту.
+    Дата — локальная, как и окно отправки, иначе квота обнуляется посреди дня.
+    """
     row = db.q1("""SELECT COUNT(*) c FROM sends
-                   WHERE account=? AND ok=1 AND date(ts)=date('now')""", (name,))
+                   WHERE account=? AND date(ts)=date('now','localtime')""", (name,))
     return max(0, limit - (row["c"] if row else 0))
 
 
@@ -260,6 +268,8 @@ def release_account(name: str) -> None:
 def in_window(campaign: dict) -> bool:
     hour = datetime.now().hour
     start, end = campaign["window_start"], campaign["window_end"]
+    if start == end:
+        return True          # одинаковые границы = окно круглосуточное
     return start <= hour < end if start <= end else (hour >= start or hour < end)
 
 
@@ -389,6 +399,9 @@ async def run_once(pool: Pool, campaign: dict, accounts: list[dict]) -> str:
     if blocked:
         return "done"
 
+    if not in_window(campaign):
+        return "wait"
+
     hour_limit = campaign.get("hour_limit")
     acc = pick_account(accounts, 10 if hour_limit is None else int(hour_limit))
     if acc is None:
@@ -482,6 +495,10 @@ async def _send_once_body(pool: Pool, campaign: dict, accounts: list[dict], acc:
 
     me_id = None if campaign["allow_self"] else pool.me_ids.get(name)
     attachment = resolve_attachment(campaign.get("attachment") or "")
+    if (campaign.get("attachment") or "").strip() and attachment is None:
+        db.stop_campaign(campaign["id"], "вложение не найдено — кампания остановлена")
+        settle("pending", "attachment_missing")
+        return "done"
 
     if DRY_RUN:
         preview = compose(target["first_name"] or "")
@@ -523,8 +540,9 @@ async def _send_once_body(pool: Pool, campaign: dict, accounts: list[dict], acc:
             await notify.send(pool, f"⛔ {name}: {why}. Аккаунт на паузе 6 часов.", name)
 
     if result.ok:
-        day = db.warmup_day(acc.get("warmup_start") or "")
-        wait = pacing.after_send(name, day)
+        # интервал уже выставлен при резерве аккаунта: второй вызов сдвигал бы
+        # паузу дважды, и фактический темп был вдвое медленнее задуманного
+        wait = pacing.wait_left(name)
         log(f"✅ {name} → @{target['username']} (следующее через {wait} с)")
     else:
         log(f"❌ {name} → @{target['username']}: {brand.reason_label(result.reason)}")
