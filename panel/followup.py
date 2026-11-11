@@ -113,6 +113,24 @@ def explain_text() -> str:
             "где ИИ снимает рутину: продажи, маркетинг, автоматизация.")
 
 
+STAGE2_CAMPAIGN = int(__import__("os").environ.get("SENDERX_STAGE2_CAMPAIGN", "0") or 0)
+
+
+def stage2_text(account: str, campaign_id: int | None = None) -> str:
+    """Второе сообщение: переписанный под аккаунт вариант, иначе шаблон.
+
+    Переписанные варианты лежат в `account_texts` с stage=2 и получают номер
+    от 1000, поэтому не сталкиваются со спинтаксисом первого этапа.
+    """
+    cid = campaign_id or STAGE2_CAMPAIGN
+    if cid:
+        for row in db.account_texts_get(account, cid, 2):
+            if not db.variant_taken(account, cid, int(row["variant"])):
+                db.mark_variant(account, cid, int(row["variant"]))
+                return row["text"]
+    return announce_text(account)
+
+
 def announce_text(account: str) -> str:
     invite = INVITE.get(account, "")
     tail = f"\nГруппа школы: https://t.me/+{invite}" if invite else ""
@@ -303,7 +321,7 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
                     sender,
                     f"Принял: {(msg.text or '').strip().lower()}. "
                     "Соберу 3 сценария под эту сферу и пришлю следом. "
-                    "Пока — что будет 13 ноября: " + announce_text(account),
+                    "Пока — что будет 13 ноября: " + stage2_text(account),
                     parse_mode="md", link_preview=False)
             except Exception as exc:  # noqa: BLE001
                 db.event("followup_error", account, f"{type(exc).__name__}: {str(exc)[:80]}")
@@ -314,10 +332,11 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
             continue
 
         await ready_to_reply(client, sender, account, username)
-        await typing_before_send(client, sender, announce_text(account), account, username)
+        stage2 = stage2_text(account)
+        await typing_before_send(client, sender, stage2, account, username)
         try:
             if action == "announce" and POSTER.exists():
-                await client.send_file(sender, str(POSTER), caption=announce_text(account),
+                await client.send_file(sender, str(POSTER), caption=stage2,
                                        parse_mode="md", link_preview=False)
             else:
                 await client.send_message(sender, explain_text())
