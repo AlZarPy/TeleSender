@@ -30,3 +30,8 @@ acct_a2;socks5://support0mhx4:5zIaWLYTKm@82.140.183.216:50101
 acct_a3;socks5://support0mhx4:5zIaWLYTKm@151.241.39.121:50101
 acct_a4;socks5://support0mhx4:5zIaWLYTKm@82.140.183.229:50101
 acct_a5;socks5://support0mhx4:5zIaWLYTKm@82.140.183.7:50101
+acct_c1;socks5://support0mhx4:5zIaWLYTKm@151.241.39.107:50101
+acct_c2;socks5://support0mhx4:5zIaWLYTKm@151.241.39.225:50101
+acct_c3;socks5://support0mhx4:5zIaWLYTKm@151.241.39.159:50101
+acct_c4;socks5://support0mhx4:5zIaWLYTKm@82.140.183.83:50101
+acct_c5;socks5://support0mhx4:5zIaWLYTKm@151.241.39.128:50101
