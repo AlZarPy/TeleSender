@@ -306,6 +306,8 @@ async def send_with_retry(pool: Pool, name: str, target: dict, caller,
             return await caller(client)
         except FloodDetected:
             raise
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+            raise
         except BaseException as exc:  # noqa: BLE001
             if not is_transient(exc):
                 raise
@@ -460,6 +462,11 @@ async def _send_once_body(pool: Pool, campaign: dict, accounts: list[dict], acc:
     chosen: dict = {"variant": -1, "text": ""}
 
     def compose(his_name: str) -> str:
+        # текст собирается один раз: иначе при повторе уйдёт другой вариант,
+        # а проверка «уже доставлено» не найдёт совпадения
+        if chosen["text"]:
+            return chosen["text"]
+
         # у каждого аккаунта свой набор вариантов: два аккаунта не отправят
         # байт-в-байт одинаковый текст
         pool_names = sorted(a["session_name"] for a in accounts) or [name]
