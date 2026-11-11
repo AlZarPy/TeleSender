@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import sqlite3
 import os
 import random
 import sys
@@ -137,6 +138,10 @@ class Pool:
                 await client.disconnect()
             except Exception:  # noqa: BLE001
                 pass
+            # Блокировка базы — не проблема прокси: не отправляем аккаунт в бэкофф,
+            # иначе живой аккаунт простаивает 300 секунд из-за чужой записи.
+            if isinstance(exc, sqlite3.OperationalError):
+                raise ConnectionError(f"{name}: база занята, повтор позже") from exc
             self._note_failure(name, exc)
             raise
 
@@ -450,7 +455,9 @@ async def main_async(args) -> int:
                 last_warmup = time.time()
                 try:
                     db.heartbeat("warmup", "прогрев подписками")
-                    accs_now = live_accounts()
+                    # личный аккаунт владельца в прогрев не берём
+                    accs_now = [a for a in live_accounts()
+                                if (db.account_group(a["session_name"]) or "") != "personal"]
                     log(f"🌱 прогрев подписками: {len(accs_now)} аккаунтов")
                     actions = await asyncio.wait_for(
                         warmup.tick(pool, accs_now), timeout=600)
@@ -466,8 +473,10 @@ async def main_async(args) -> int:
                     db.heartbeat("warmup", "прогрев перепиской")
                     async def chat_tick():
                         try:
+                            warm_pool = [a for a in live_accounts()
+                                         if (db.account_group(a["session_name"]) or "") != "personal"]
                             chats = await asyncio.wait_for(
-                                interchat.tick(pool, live_accounts()), timeout=1200)
+                                interchat.tick(pool, warm_pool), timeout=1200)
                             log("💬 прогрев перепиской: " +
                                 ("; ".join(chats) if chats else "пар не выбрано"))
                         except Exception as exc:  # noqa: BLE001

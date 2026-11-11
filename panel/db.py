@@ -275,11 +275,27 @@ def q1(sql: str, params: tuple = ()):
 
 
 def execute(sql: str, params: tuple = ()) -> int:
-    with connect() as conn:
-        cur = conn.execute(sql, params)
-        conn.commit()
-        last = cur.lastrowid
-        return int(last) if last is not None else 0
+    """Запись с повтором на случай, если база занята другим процессом.
+
+    SQLite в режиме WAL бросает «database is locked», когда писатель держит
+    блокировку дольше busy_timeout: у нас так падал прогрев перепиской, когда
+    рядом работал второй процесс. Три попытки с нарастающей паузой лечат это
+    без потери сообщений.
+    """
+    import time as _time
+
+    for attempt in range(3):
+        try:
+            with connect() as conn:
+                cur = conn.execute(sql, params)
+                conn.commit()
+                last = cur.lastrowid
+                return int(last) if last is not None else 0
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt == 2:
+                raise
+            _time.sleep(0.4 * (attempt + 1))
+    return 0
 
 
 def event(kind: str, account: str = "", detail: str = "") -> None:
