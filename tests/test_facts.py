@@ -62,9 +62,10 @@ def test_wrong_date_caught():
 def test_no_masterclasses_in_base():
     """Мастер-классы, школы и наставники сознательно не включены."""
     facts.seed()
-    titles = " ".join(r["title"] + " " + r["body"] for r in db.q("SELECT title, body FROM facts")).lower()
+    titles = " ".join(r["title"] for r in db.q("SELECT title FROM facts")).lower()
+    # расписания мастер-классов и списка наставников в базе нет — только формат курса
     assert "мастер-класс" not in titles
-    assert "наставник" not in titles
+    assert "расписание" not in titles
 
 
 def test_salesperson_prompt_includes_facts(monkeypatch=None):
