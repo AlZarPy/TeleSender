@@ -20,7 +20,7 @@ def _camp() -> int:
     db.init()
     db.execute("DELETE FROM campaigns")
     db.execute("""INSERT INTO campaigns(id, name, template, status)
-                  VALUES(55, 'stage2', 'шаблон второго сообщения', 'draft')""")
+                  VALUES(55, 'stage2', '**Что дальше** 🎓 13 ноября в 15:00, запись: {LINK}', 'draft')""")
     db.meta_set("stage2_campaign", "55")   # как в бою: источник Б закреплён в meta
     return 55
 
