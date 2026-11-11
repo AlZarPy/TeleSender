@@ -195,6 +195,13 @@ def _migrate() -> None:
             "replied": "INTEGER NOT NULL DEFAULT 0",
             "last_reply": "TEXT NOT NULL DEFAULT ''",
         },
+        "recipients": {
+            "consent": "INTEGER NOT NULL DEFAULT 0",
+            "consent_at": "TEXT NOT NULL DEFAULT ''",
+        },
+        "campaigns": {
+            "requires_consent": "INTEGER NOT NULL DEFAULT 0",
+        },
         "sends": {
             "read_at": "TEXT NOT NULL DEFAULT ''",
             "variant": "INTEGER NOT NULL DEFAULT -1",
@@ -442,10 +449,35 @@ def campaign_stats(campaign_id: int) -> dict:
 
 
 def next_target(campaign_id: int):
-    return q1("""SELECT t.recipient_id, r.username, r.first_name
-                 FROM campaign_targets t JOIN recipients r ON r.id = t.recipient_id
-                 WHERE t.campaign_id=? AND t.state='pending' AND r.status='active'
-                 ORDER BY t.recipient_id LIMIT 1""", (campaign_id,))
+    """Следующий адресат. Если кампания opt-in — только те, кто дал согласие."""
+    camp = q1("SELECT requires_consent FROM campaigns WHERE id=?", (campaign_id,))
+    need_consent = int(camp["requires_consent"] or 0) if camp else 0
+    extra = " AND r.consent=1" if need_consent else ""
+    return q1(f"""SELECT t.recipient_id, r.username, r.first_name
+                  FROM campaign_targets t JOIN recipients r ON r.id = t.recipient_id
+                  WHERE t.campaign_id=? AND t.state='pending' AND r.status='active'{extra}
+                  ORDER BY t.recipient_id LIMIT 1""", (campaign_id,))
+
+
+def set_consent(username: str, given: bool = True) -> bool:
+    """Отметить согласие адресата на рассылку."""
+    row = q1("SELECT id FROM recipients WHERE LOWER(username)=LOWER(?)", (username.lstrip("@"),))
+    if not row:
+        return False
+    execute("""UPDATE recipients SET consent=?, consent_at=datetime('now','localtime')
+               WHERE id=?""", (int(given), row["id"]))
+    return True
+
+
+def consent_stats() -> dict:
+    row = q1("""SELECT COUNT(*) total, SUM(consent=1) agreed,
+                       SUM(consent=1 AND status='active') agreed_live
+                FROM recipients""")
+    d = dict(row) if row else {}
+    total = int(d.get("total") or 0)
+    agreed = int(d.get("agreed") or 0)
+    return {"total": total, "agreed": agreed, "live": int(d.get("agreed_live") or 0),
+            "share": round(agreed / total, 3) if total else 0.0}
 
 
 def claim_target(campaign_id: int, account: str = ""):
