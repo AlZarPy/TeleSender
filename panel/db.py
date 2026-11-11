@@ -131,6 +131,16 @@ CREATE TABLE IF NOT EXISTS dialog_state (
     updated_at TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS account_texts (
+    account     TEXT NOT NULL,
+    campaign_id INTEGER NOT NULL,
+    stage       INTEGER NOT NULL DEFAULT 1,
+    variant     INTEGER NOT NULL,
+    text        TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY(account, campaign_id, stage, variant)
+);
+
 CREATE TABLE IF NOT EXISTS facts (
     id         TEXT PRIMARY KEY,
     topic      TEXT NOT NULL,
@@ -637,6 +647,32 @@ def log_send(campaign_id: int, recipient: str, account: str, ok: bool,
     execute("""INSERT INTO sends(campaign_id, recipient, account, ok, reason, msg_id, variant, text)
                VALUES (?,?,?,?,?,?,?,?)""",
             (campaign_id, recipient, account, int(ok), reason, msg_id, variant, text[:2000]))
+
+
+def account_texts_put(account: str, campaign_id: int, stage: int, texts: list[str]) -> int:
+    """Складывает переписанные моделью варианты под конкретный аккаунт."""
+    for i, text in enumerate(texts):
+        execute("""INSERT INTO account_texts(account, campaign_id, stage, variant, text)
+                   VALUES(?,?,?,?,?)
+                   ON CONFLICT(account, campaign_id, stage, variant)
+                   DO UPDATE SET text=excluded.text, created_at=datetime('now','localtime')""",
+                (account, campaign_id, stage, 1000 + i, text[:2000]))
+    return len(texts)
+
+
+def account_texts_get(account: str, campaign_id: int, stage: int = 1) -> list[dict]:
+    return [dict(r) for r in q("""SELECT variant, text FROM account_texts
+                                  WHERE account=? AND campaign_id=? AND stage=?
+                                  ORDER BY variant""", (account, campaign_id, stage))]
+
+
+def account_texts_count(campaign_id: int | None = None) -> int:
+    if campaign_id:
+        row = q1("SELECT COUNT(DISTINCT account) n FROM account_texts WHERE campaign_id=?",
+                 (campaign_id,))
+    else:
+        row = q1("SELECT COUNT(DISTINCT account) n FROM account_texts")
+    return int(row["n"]) if row else 0
 
 
 def fact_upsert(card: dict) -> None:

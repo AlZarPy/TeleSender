@@ -42,6 +42,8 @@ def test_spammy_campaign_is_stopped_before_sending():
 
 def test_clean_campaign_is_allowed():
     camp = _campaign(CLEAN, "чистая")
+    # текст чистый, но должен быть ещё уникализирован под аккаунты
+    db.account_texts_put("acct_x", camp["id"], 1, [CLEAN])
     assert copy_gate(camp) is None
     row = db.q1("SELECT status FROM campaigns WHERE id=?", (camp["id"],))
     assert row["status"] == "active", dict(row)
@@ -58,6 +60,7 @@ def test_score_is_logged_once_per_campaign():
 
 def test_env_override_allows_spammy_text():
     camp = _campaign(SPAMMY, "обход")
+    db.account_texts_put("acct_x", camp["id"], 1, [SPAMMY])
     os.environ["SENDERX_ALLOW_SPAMMY_TEXT"] = "1"
     try:
         assert copy_gate(camp) is None

@@ -298,6 +298,15 @@ def copy_gate(campaign: dict) -> str | None:
         db.stop_campaign(cid, reason)
         db.event("copy_blocked", "", reason)
         return reason
+
+    # ИИ-уникализация: без переписанных под аккаунты текстов волна не начинается.
+    # Спинтаксис меняет порядок вставок, но слова остаются те же — этого мало.
+    if not os.environ.get("SENDERX_ALLOW_PLAIN_TEXT") and db.account_texts_count(cid) == 0:
+        reason = ("текст не уникализирован под аккаунты: нет переписанных вариантов "
+                  "(tools/rewrite_variants.py)")
+        db.stop_campaign(cid, reason)
+        db.event("copy_not_unique", "", reason)
+        return reason
     return None
 
 

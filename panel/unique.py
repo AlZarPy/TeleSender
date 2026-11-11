@@ -32,8 +32,18 @@ def pool_for(account: str, variants: list[str], accounts: list[str]) -> list[str
 
 
 def pick(account: str, campaign_id: int, template: str,
-         accounts: list[str] | None = None) -> tuple[str, int]:
-    """Возвращает (текст, номер варианта), ещё не отправленный этим аккаунтом."""
+         accounts: list[str] | None = None, stage: int = 1) -> tuple[str, int]:
+    """Возвращает (текст, номер варианта), ещё не отправленный этим аккаунтом.
+
+    Приоритет — тексты, переписанные нейросетью под этот аккаунт (`account_texts`):
+    они отличаются не порядком вставок, а словами. Спинтаксис остаётся запасным
+    вариантом, когда переписанного текста нет.
+    """
+    rewritten = db.account_texts_get(account, campaign_id, stage)
+    for row in rewritten:
+        if not db.variant_taken(account, campaign_id, int(row["variant"])):
+            return row["text"], int(row["variant"])
+
     variants = message.variants_list(template)
     if not variants:
         return template, -1
