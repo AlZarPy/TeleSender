@@ -152,10 +152,13 @@ def check(text: str, history: list[dict] | None = None) -> list[dict]:
     """Все замечания к реплике. Пустой список — реплику можно отправлять."""
     issues = check_form(text) + check_claims(text) + check_facts(text) \
         + check_repeats(text, history)
+    # разные нарушения одного типа — разные замечания: «две даты неверны»
+    # должно попадать в журнал обеими строками
     seen, unique = set(), []
     for i in issues:
-        if i["code"] not in seen:
-            seen.add(i["code"])
+        key = (i["code"], i.get("detail", ""))
+        if key not in seen:
+            seen.add(key)
             unique.append(i)
     return unique
 

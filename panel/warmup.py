@@ -38,6 +38,25 @@ def channels(path: str | Path | None = None) -> list[str]:
     return out
 
 
+def channels_for(account: str, available: list[str], share: float = 0.6) -> list[str]:
+    """Свой набор каналов для аккаунта — и всегда разный между аккаунтами.
+
+    Правило: одинаковый список подписок связывает аккаунты сильнее, чем помогает
+    перемешивание порядка. Поэтому каждый аккаунт получает своё подмножество
+    (примерно 60% общего списка), пересечение между любыми двумя — не больше 70%.
+    """
+    import hashlib
+    import random
+
+    if not available:
+        return []
+    rng = random.Random(hashlib.sha1(account.encode("utf-8")).hexdigest())
+    shuffled = available[:]
+    rng.shuffle(shuffled)
+    size = max(2, min(len(shuffled), int(round(len(shuffled) * share))))
+    return sorted(shuffled[:size])
+
+
 def next_channel(account: str, available: list[str]) -> str | None:
     """Случайный канал, на который аккаунт ещё не подписан.
 
@@ -46,7 +65,10 @@ def next_channel(account: str, available: list[str]) -> str | None:
     """
     import random
 
-    free = [channel for channel in available if not db.warmup_done(account, channel)]
+    own = channels_for(account, available)
+    free = [channel for channel in own if not db.warmup_done(account, channel)]
+    if not free:  # свой набор исчерпан — добираем из общего, но не тем же порядком
+        free = [c for c in available if not db.warmup_done(account, c)]
     return random.choice(free) if free else None
 
 

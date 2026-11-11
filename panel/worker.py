@@ -577,8 +577,10 @@ async def main_async(args) -> int:
             if promoted:
                 log(f"по расписанию стартовало кампаний: {promoted}")
 
-            # прогрев подписками: раз в 20 минут, по одной подписке на аккаунт
-            if not args.once and time.time() - last_warmup > 1200:
+            # прогрев подписками: интервал плавает 20–60 минут, иначе все подписки
+            # уходят пачкой в первые часы, а это ровно тот ритм, что ловит антиспам
+            warmup_gap = int(os.environ.get("SENDERX_WARMUP_GAP", "1200"))
+            if not args.once and time.time() - last_warmup > random.randint(warmup_gap, warmup_gap * 3):
                 last_warmup = time.time()
                 try:
                     db.heartbeat("warmup", "прогрев подписками")

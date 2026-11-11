@@ -97,8 +97,8 @@ CARDS: list[dict] = [
 
     {"id": "reg_link", "topic": "регистрация",
      "title": "Как зарегистрироваться",
-     "body": "Регистрация на сайте zapuskterra.ru. Ссылку присылаю по запросу.",
-     "facts_list": ["zapuskterra.ru"],
+     "body": "Ссылка ведёт в группу школы в Telegram: у каждого куратора своя ссылка-приглашение в описании профиля. Присылаю её по запросу.",
+     "facts_list": [],
      "keywords": "регистрация записаться ссылка сайт как попасть",
      "source": "лендинг", "sensitive": 1},
 
@@ -240,6 +240,10 @@ def context_for(query: str, limit: int = 4) -> str:
 _TIME = re.compile(r"\b(\d{1,2})[:.](\d{2})\b")
 _DATE = re.compile(r"\b(\d{1,2})\s+(январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)\w*", re.I)
 _ADDR = re.compile(r"наб\.?\s*,?\s*(\d+)", re.I)
+_PRICE = re.compile(r"(\d[\d\s]{2,})\s*(?:₽|руб\.?|рублей)", re.I)
+_NUMBER = re.compile(r"(?<![\w.-])(\d{2,4})(?![\w-])")
+_WORDS = {"два": 2, "три": 3, "четыре": 4, "пять": 5, "шесть": 6,
+          "семь": 7, "восемь": 8, "девять": 9, "десять": 10}
 
 
 def allowed_facts() -> set[str]:
@@ -282,5 +286,27 @@ def check_numbers(text: str) -> list[dict]:
     for m in _ADDR.finditer(text):
         if not known(str(m.group(1))):
             issues.append({"code": "fact_address", "detail": f"дом {m.group(1)} нет в базе фактов"})
+
+    # цены: любая сумма в рублях должна быть в базе (у нас — только «бесплатно»)
+    for m in _PRICE.finditer(text):
+        value = m.group(1).replace(" ", "")
+        if not known(value):
+            issues.append({"code": "fact_price", "detail": f"сумма {value} ₽ нет в базе фактов"})
+
+    # количества: словами (два…десять) и числами от 20
+    masked = text
+    for pattern in (_TIME, _DATE, _ADDR):
+        masked = pattern.sub(" ", masked)
+    for word, num in _WORDS.items():
+        if re.search(rf"{word}", text, re.I) and not any(word in a for a in allowed):
+            issues.append({"code": "fact_number",
+                           "detail": f"количество «{word}» нет в базе фактов"})
+    for m in _NUMBER.finditer(masked):
+        value = m.group(1)
+        if 2000 <= int(value) <= 2100:      # годы не проверяем
+            continue
+        if not known(value):
+            issues.append({"code": "fact_number",
+                           "detail": f"число {value} нет в базе фактов"})
 
     return issues
