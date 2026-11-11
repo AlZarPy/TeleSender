@@ -185,6 +185,7 @@ def _migrate() -> None:
             "stopped_reason": "TEXT NOT NULL DEFAULT ''",
             "ab_group": "TEXT NOT NULL DEFAULT ''",
             "account_group": "TEXT NOT NULL DEFAULT ''",
+            "requires_consent": "INTEGER NOT NULL DEFAULT 0",
         },
         "accounts": {
             "warmup_start": "TEXT NOT NULL DEFAULT ''",
@@ -194,13 +195,8 @@ def _migrate() -> None:
         "recipients": {
             "replied": "INTEGER NOT NULL DEFAULT 0",
             "last_reply": "TEXT NOT NULL DEFAULT ''",
-        },
-        "recipients": {
             "consent": "INTEGER NOT NULL DEFAULT 0",
             "consent_at": "TEXT NOT NULL DEFAULT ''",
-        },
-        "campaigns": {
-            "requires_consent": "INTEGER NOT NULL DEFAULT 0",
         },
         "sends": {
             "read_at": "TEXT NOT NULL DEFAULT ''",
@@ -633,6 +629,20 @@ def variant_stats(campaign_id: int | None = None) -> list[dict]:
                     "read": int(r["read_cnt"] or 0), "replied": int(r["replied"] or 0),
                     "reply_share": round(int(r["replied"] or 0) / sent, 3) if sent else 0.0})
     return out
+
+
+def dialog_quality_stats(days: int = 30) -> list[dict]:
+    """Замечания к ответам ИИ-продавца: что чаще всего бракуется."""
+    from . import dialog_quality
+
+    rows = q("""SELECT detail FROM events
+                WHERE kind='quality_fail' AND ts >= datetime('now','localtime', ?)""",
+             (f"-{days} days",))
+    codes: list[str] = []
+    for r in rows:
+        head = (r["detail"] or "").split(":", 1)[0]
+        codes.extend(c.strip() for c in head.split(",") if c.strip())
+    return dialog_quality.summarise(codes)
 
 
 def objection_stats(days: int = 30) -> list[dict]:

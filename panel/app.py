@@ -67,6 +67,10 @@ def healthz():
         objections = db.objection_stats(30)
     except Exception as exc:  # noqa: BLE001
         objections = {"error": f"{type(exc).__name__}: {exc}"}
+    try:
+        dq = db.dialog_quality_stats(30)
+    except Exception as exc:  # noqa: BLE001
+        dq = {"error": f"{type(exc).__name__}: {exc}"}
     return {
         "ok": True,
         "build": BUILD if "BUILD" in globals() else "dev",
@@ -76,6 +80,7 @@ def healthz():
         "ab": ab,
         "texts": texts,
         "objections": objections,
+        "dialog_quality": dq,
     }
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
@@ -267,6 +272,7 @@ def dashboard(request: Request, user: str = Depends(current_user)):
     return render(request, "dashboard.html", accounts=checks.summary(health.with_health(accounts)),
                   quality=metrics.quality(7), campaigns=campaigns,
                   texts=db.variant_stats(), objections=db.objection_stats(30),
+                  dialog_quality=db.dialog_quality_stats(30),
                   funnel=db.global_funnel(),
                   totals=totals, recent=recent, events=events)
 

@@ -14,6 +14,7 @@ import re
 import urllib.request
 
 from . import db
+from . import dialog_quality
 
 DEFAULT_MODEL = os.getenv("SENDERX_SALES_MODEL", "anthropic/claude-sonnet-5.5")
 FALLBACK_MODEL = "deepseek/deepseek-v4.1-flash-1017"
@@ -148,6 +149,15 @@ def compose(history: list[dict], account_name: str, attempts: int = 2,
         return None
     text = _clean(text)
     if not text or BANNED.search(text):
+        if attempts > 1:
+            return compose(history, account_name, attempts - 1, stage=stage)
+        return None
+
+    # качество: дата/адрес/цена, повторы, лишние обещания, канцелярит
+    issues = dialog_quality.check(text, history=history)
+    if issues:
+        codes = ",".join(i["code"] for i in issues)
+        db.event("quality_fail", account_name, f"{codes}: {text[:120]}")
         if attempts > 1:
             return compose(history, account_name, attempts - 1, stage=stage)
         return None
