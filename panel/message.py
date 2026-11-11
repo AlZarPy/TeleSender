@@ -78,6 +78,21 @@ def variants_list(text: str, cap: int = 240) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+
+_LINK_PLACEHOLDER = re.compile(r"\{\{LINK\}\}|\{LINK\}|<ССЫЛКА>|\{\{ССЫЛКА\}\}", re.I)
+
+
+def fill_link(text: str, link: str) -> str:
+    """Подставляет ссылку до раскрытия спинтаксиса.
+
+    Если раскрывать первым, «{{LINK}}» превращается в «LINK»: фигурные скобки
+    съедает спинтаксис. Поэтому сначала прячем плейсхолдер в служебный токен.
+    """
+    if not link:
+        return text
+    return _LINK_PLACEHOLDER.sub(link, text)
+
+
 def personalise(text: str, my_name: str, his_name: str) -> str:
     name = (his_name or "").strip() or "друг"
     return text.replace(PH_ME, my_name).replace(PH_HIM, name)
