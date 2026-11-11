@@ -559,6 +559,20 @@ async def main_async(args) -> int:
                 continue
 
             accounts = db.accounts_with_config(accounts_cfg)
+            # Группа кампании: аккаунты группы A не должны отправлять текст группы B
+            # и наоборот, иначе эксперимент смешивается.
+            need_group = (campaign.get("account_group") or "").strip().lower()
+            if need_group:
+                accounts = [a for a in accounts
+                            if (db.account_group(a["session_name"]) or "").lower() == need_group]
+                if not accounts:
+                    db.heartbeat("waiting",
+                                 f"кампания «{campaign['name']}» ждёт аккаунты группы {need_group.upper()}")
+                    if args.once:
+                        print("no_accounts_for_group")
+                        return 0
+                    await asyncio.sleep(120)
+                    continue
             db.heartbeat("working", f"кампания «{campaign['name']}»: {stats['pending']} в очереди")
             states = await run_batch(pool, campaign, accounts)
             state = "sent" if "sent" in states else states[0]
