@@ -131,6 +131,23 @@ CREATE TABLE IF NOT EXISTS dialog_state (
     updated_at TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS facts (
+    id         TEXT PRIMARY KEY,
+    topic      TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    fact_list  TEXT NOT NULL DEFAULT '',
+    keywords   TEXT NOT NULL DEFAULT '',
+    source     TEXT NOT NULL DEFAULT '',
+    sensitive  INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
+    title, body, keywords,
+    content='facts', content_rowid='rowid', tokenize='unicode61'
+);
+
 CREATE TABLE IF NOT EXISTS used_variants (
     account      TEXT NOT NULL,
     campaign_id  INTEGER NOT NULL,
@@ -620,6 +637,49 @@ def log_send(campaign_id: int, recipient: str, account: str, ok: bool,
     execute("""INSERT INTO sends(campaign_id, recipient, account, ok, reason, msg_id, variant, text)
                VALUES (?,?,?,?,?,?,?,?)""",
             (campaign_id, recipient, account, int(ok), reason, msg_id, variant, text[:2000]))
+
+
+def fact_upsert(card: dict) -> None:
+    """Кладёт карточку факта и обновляет поисковый индекс."""
+    execute("""INSERT INTO facts(id, topic, title, body, fact_list, keywords, source, sensitive, updated_at)
+               VALUES(?,?,?,?,?,?,?,?,datetime('now','localtime'))
+               ON CONFLICT(id) DO UPDATE SET
+                 topic=excluded.topic, title=excluded.title, body=excluded.body,
+                 fact_list=excluded.fact_list, keywords=excluded.keywords,
+                 source=excluded.source, sensitive=excluded.sensitive,
+                 updated_at=excluded.updated_at""",
+            (card["id"], card["topic"], card["title"], card["body"],
+             card.get("facts", ""), card.get("keywords", ""),
+             card.get("source", ""), int(card.get("sensitive", 0))))
+    # внешний контент: индекс перестраивается целиком, карточек десятки
+    execute("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')")
+
+
+def fact_search(query: str, limit: int = 4) -> list[dict]:
+    """Поиск карточек по словам вопроса. Пустой запрос — самые важные."""
+    text = (query or "").strip()
+    if not text:
+        return [dict(r) for r in q("SELECT * FROM facts ORDER BY sensitive DESC, id LIMIT ?", (limit,))]
+    words = [w for w in re.split(r"[^\wа-яА-ЯёЁ]+", text.lower()) if len(w) > 2][:6]
+    if not words:
+        return [dict(r) for r in q("SELECT * FROM facts ORDER BY sensitive DESC, id LIMIT ?", (limit,))]
+    match = " OR ".join(f"{w}*" for w in words)
+    rows = q("""SELECT f.* FROM facts_fts
+                 JOIN facts f ON f.rowid = facts_fts.rowid
+                 WHERE facts_fts MATCH ?
+                 ORDER BY bm25(facts_fts) LIMIT ?""", (match, limit))
+    if rows:
+        return [dict(r) for r in rows]
+    like = " OR ".join(["title LIKE ? OR body LIKE ? OR keywords LIKE ?"] * len(words))
+    params: list = []
+    for w in words:
+        params += [f"%{w}%"] * 3
+    return [dict(r) for r in q(f"SELECT * FROM facts WHERE {like} LIMIT ?", (*params, limit))]
+
+
+def facts_count() -> int:
+    row = q1("SELECT COUNT(*) n FROM facts")
+    return int(row["n"]) if row else 0
 
 
 def variant_taken(account: str, campaign_id: int, variant: int) -> bool:

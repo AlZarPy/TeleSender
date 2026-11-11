@@ -13,7 +13,7 @@ import os
 import re
 import urllib.request
 
-from . import db
+from . import db, facts
 from . import dialog_quality
 
 DEFAULT_MODEL = os.getenv("SENDERX_SALES_MODEL", "anthropic/claude-sonnet-5.5")
@@ -128,11 +128,19 @@ def compose(history: list[dict], account_name: str, attempts: int = 2,
     dialog = "\n".join(
         ("Он: " if h["who"] == "them" else "Ты: ") + h["text"][:400] for h in history[-6:]
     )
+    # В промпт уходят только релевантные карточки фактов, а не весь корпус
+    last_them = next((h["text"] for h in reversed(history) if h["who"] == "them"), "")
+    knowledge = facts.context_for(last_them, limit=4)
     body = json.dumps({
         "model": DEFAULT_MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM + f"\n\nТебя зовут {account_name}."},
-            {"role": "user", "content": f"Переписка:\n{dialog}\n\nОтветь одной репликой."},
+            {"role": "user", "content": (
+                (knowledge + "\n\n" if knowledge else "")
+                + f"Переписка:\n{dialog}\n\nОтветь одной репликой. "
+                "Числа, дату и адрес бери только из фактов выше; чего нет в фактах — "
+                "не выдумывай, скажи что уточнишь."
+            )},
         ],
         "temperature": 0.7,
         "max_tokens": 220,

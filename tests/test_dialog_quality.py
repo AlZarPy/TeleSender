@@ -98,6 +98,7 @@ def test_quality_fail_is_logged_by_salesperson_path():
     from panel import db
 
     db.init()
+    db.execute("DELETE FROM events WHERE kind='quality_fail'")
     db.event("quality_fail", "acct_a1", "fact_date: 14 ноября")
     row = db.q1("SELECT COUNT(*) n FROM events WHERE kind='quality_fail'")
     assert row and row["n"] == 1, dict(row) if row else None

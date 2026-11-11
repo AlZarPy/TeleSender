@@ -64,8 +64,14 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip().lower())
 
 
-def check_facts(text: str, facts: dict | None = None) -> list[dict]:
-    f = facts or FACTS
+def check_facts(text: str, facts_map: dict | None = None) -> list[dict]:
+    """Сверка чисел: правила из констант + база фактов, если она наполнена.
+
+    База ловит то, что знает (время, дата, дом из карточек), константы — базовые
+    требования формата (дом 12, бесплатный вход). Вместе получается полнее, чем
+    каждый по отдельности.
+    """
+    f = facts_map or FACTS
     out: list[dict] = []
     low = _norm(text)
 
@@ -79,16 +85,26 @@ def check_facts(text: str, facts: dict | None = None) -> list[dict]:
 
     for m in _TIME.finditer(text):
         found = f"{m.group(1)}:{m.group(2)}"
-        if found.replace(":", ".") != _norm(f["time"]).replace(":", "."):
-            if f"{m.group(1)}:{m.group(2)}" != f["time"]:
-                out.append({"code": "fact_time", "detail": f"названо время {found}, верно {f['time']}"})
+        if found != f["time"]:
+            out.append({"code": "fact_time", "detail": f"названо время {found}, верно {f['time']}"})
 
     for m in _HOUSE.finditer(text):
         if m.group(1) != "12":
             out.append({"code": "fact_address", "detail": f"дом {m.group(1)}, верно 12"})
 
-    if re.search(r"\b\d[\d\s]{2,}\s*(?:₽|руб)", text) and "бесплат" not in low:
+    if _PRICE.search(text) and "бесплат" not in low:
         out.append({"code": "fact_price", "detail": "названа цена, а вход бесплатный"})
+
+    try:
+        from . import facts as facts_base
+
+        if facts_base.db.facts_count() > 0:
+            for issue in facts_base.check_numbers(text):
+                if issue["code"] not in {o["code"] for o in out}:
+                    out.append(issue)
+    except Exception:  # noqa: BLE001
+        pass
+
     return out
 
 
@@ -132,10 +148,9 @@ def check_form(text: str) -> list[dict]:
     return out
 
 
-def check(text: str, history: list[dict] | None = None,
-          facts: dict | None = None) -> list[dict]:
+def check(text: str, history: list[dict] | None = None) -> list[dict]:
     """Все замечания к реплике. Пустой список — реплику можно отправлять."""
-    issues = check_form(text) + check_claims(text) + check_facts(text, facts) \
+    issues = check_form(text) + check_claims(text) + check_facts(text) \
         + check_repeats(text, history)
     seen, unique = set(), []
     for i in issues:
