@@ -582,6 +582,40 @@ async def main_async(args) -> int:
     last_chat = 0.0
     last_idle_check = 0.0
     try:
+        async def _reply_loop() -> None:
+            """Независимый цикл ответов: свой таймер и свои таймауты.
+
+            Даже если основной цикл залип на прокси, ответы продолжают уходить.
+            """
+            gap = int(os.environ.get("SENDERX_FOLLOWUP_SCAN", "10"))
+            while True:
+                started = time.time()
+                try:
+                    recent = db.recent_send_accounts(2)
+                    if recent:
+                        quick = [a for a in live_accounts() if a["session_name"] in recent]
+                        if quick:
+                            await asyncio.wait_for(followup.tick(pool, quick), timeout=60)
+                except asyncio.TimeoutError:
+                    db.event("followup_loop_timeout", "", "цикл ответов не уложился в 60 с")
+                except Exception as exc:  # noqa: BLE001
+                    db.event("followup_loop_error", "", f"{type(exc).__name__}: {str(exc)[:80]}")
+                await asyncio.sleep(max(2, gap - (time.time() - started)))
+
+        async def _watchdog() -> None:
+            """Если основной цикл молчит — фиксируем это в журнале, а не ждём молча."""
+            limit = int(os.environ.get("SENDERX_HEARTBEAT_LIMIT", "180"))
+            while True:
+                await asyncio.sleep(60)
+                alive, hb = db.worker_alive()
+                ts = float(hb.get("ts") or 0) if hb else 0
+                if ts and time.time() - ts > limit:
+                    db.event("worker_stuck", "", f"цикл молчит {int(time.time() - ts)} с")
+                    log("⚠ цикл молчит — возможно, залип на прокси")
+
+        reply_task = asyncio.create_task(_reply_loop())
+        watchdog_task = asyncio.create_task(_watchdog())
+
         while True:
             # раз в 5 минут отпускаем клиентов, которыми давно не пользовались
             if not args.once and time.time() - last_idle_check > 300:
@@ -595,78 +629,6 @@ async def main_async(args) -> int:
             promoted = db.promote_due()
             if promoted:
                 log(f"по расписанию стартовало кампаний: {promoted}")
-
-            # Быстрый слух: только аккаунты, которые писали за сутки — их ответа и ждут.
-            # Полный обход остаётся раз в 2 минуты, чтобы не тратить лимиты Telegram.
-            quick_gap = int(os.environ.get("SENDERX_FOLLOWUP_SCAN", "25"))
-            if not args.once and time.time() - last_quick_followup > quick_gap:
-                last_quick_followup = time.time()
-                recent = db.recent_send_accounts(24)
-                if recent:
-                    quick = [a for a in live_accounts() if a["session_name"] in recent]
-                    try:
-                        await asyncio.wait_for(followup.tick(pool, quick), timeout=300)
-                    except Exception as exc:  # noqa: BLE001
-                        db.event("followup_quick_error", "", f"{type(exc).__name__}: {str(exc)[:80]}")
-
-            # прогрев подписками: интервал плавает 20–60 минут, иначе все подписки
-            # уходят пачкой в первые часы, а это ровно тот ритм, что ловит антиспам
-            warmup_gap = int(os.environ.get("SENDERX_WARMUP_GAP", "1200"))
-            if not args.once and time.time() - last_warmup > random.randint(warmup_gap, warmup_gap * 3):
-                last_warmup = time.time()
-                try:
-                    db.heartbeat("warmup", "прогрев подписками")
-                    # личный аккаунт владельца в прогрев не берём
-                    accs_now = [a for a in live_accounts()
-                                if (db.account_group(a["session_name"]) or "") != "personal"]
-                    log(f"🌱 прогрев подписками: {len(accs_now)} аккаунтов")
-                    async def _warm() -> None:
-                        try:
-                            actions = await asyncio.wait_for(
-                                warmup.tick(pool, accs_now), timeout=600)
-                            if actions:
-                                log("🌱 прогрев: " + ", ".join(actions))
-                        except Exception as exc:  # noqa: BLE001
-                            db.event("warmup_error", "", str(exc)[:120])
-
-                    _warm_task = asyncio.create_task(_warm())
-                    _BACKGROUND.add(_warm_task)
-                    _warm_task.add_done_callback(_BACKGROUND.discard)
-                except Exception as exc:  # noqa: BLE001
-                    db.event("warmup_error", "", str(exc)[:120])
-
-            # прогрев перепиской: раз в 30 минут, только между своими аккаунтами
-            if not args.once and time.time() - last_chat > 1800:
-                last_chat = time.time()
-                try:
-                    db.heartbeat("warmup", "прогрев перепиской")
-                    async def chat_tick():
-                        try:
-                            warm_pool = [a for a in live_accounts()
-                                         if (db.account_group(a["session_name"]) or "") != "personal"]
-                            chats = await asyncio.wait_for(
-                                interchat.tick(pool, warm_pool), timeout=1200)
-                            log("💬 прогрев перепиской: " +
-                                ("; ".join(chats) if chats else "пар не выбрано"))
-                        except Exception as exc:  # noqa: BLE001
-                            db.event("warmup_chat_error", "", str(exc)[:120])
-
-                    _chat_task = asyncio.create_task(chat_tick())
-                    # держим сильную ссылку: иначе задача может быть собрана
-                    # сборщиком мусора до того, как переписка дошла до отправки
-                    _BACKGROUND.add(_chat_task)
-                    _chat_task.add_done_callback(_BACKGROUND.discard)
-                except Exception as exc:  # noqa: BLE001
-                    db.event("warmup_chat_error", "", str(exc)[:120])
-
-            # утренняя сводка: один раз в день после 10:00
-            if not args.once and datetime.now().hour >= 10:
-                today = datetime.now().strftime("%Y-%m-%d")
-                if db.meta_get("last_report") != today:
-                    text = report.build(db.accounts_with_config(accounts_cfg))
-                    if await notify.send(pool, text):
-                        db.meta_set("last_report", today)
-                        log("📊 сводка за сутки отправлена в Telegram")
 
             # Ответы ищем часто: человек не должен ждать четверть часа.
             # Интервал настраивается: SENDERX_REPLY_SCAN (сек, по умолчанию 120).

@@ -51,12 +51,12 @@ def test_last_send_at_used_in_scan():
 
 def test_delay_cap_is_twenty_seconds():
     src = (ROOT / "panel" / "followup.py").read_text(encoding="utf-8")
-    assert 'SENDERX_REPLY_DELAY_MAX", "20"' in src, "потолок паузы должен быть 20 секунд"
+    assert 'SENDERX_REPLY_DELAY_MAX", "10"' in src, "потолок паузы должен быть 10 секунд"
 
 
 def test_quick_scan_is_twenty_five_seconds():
     src = (ROOT / "panel" / "worker.py").read_text(encoding="utf-8")
-    assert 'SENDERX_FOLLOWUP_SCAN", "25"' in src, "быстрый опрос — 25 секунд"
+    assert 'SENDERX_FOLLOWUP_SCAN", "10"' in src, "быстрый опрос — 10 секунд"
 
 
 def main() -> int:

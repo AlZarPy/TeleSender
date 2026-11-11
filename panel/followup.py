@@ -21,8 +21,8 @@ POSTER = Path("media/poster-terra.jpg")
 
 # Пауза перед ответом: человек не отвечает через секунду. Ровный интервал тоже
 # подозрителен, поэтому разброс большой, а иногда ответ «задерживается».
-REPLY_DELAY = (6, 18)
-LONG_DELAY = (12, 20)
+REPLY_DELAY = (3, 8)
+LONG_DELAY = (6, 9)
 LONG_CHANCE = 0.08
 
 
@@ -31,7 +31,7 @@ def reply_delay(rng: random.Random | None = None) -> int:
     delay = rng.randint(*REPLY_DELAY)
     if rng.random() < LONG_CHANCE:
         delay = rng.randint(*LONG_DELAY)
-    cap = int(os.getenv("SENDERX_REPLY_DELAY_MAX", "20"))
+    cap = int(os.getenv("SENDERX_REPLY_DELAY_MAX", "10"))
     return max(0, min(delay, cap))
 
 
@@ -119,6 +119,17 @@ def explain_text() -> str:
     return ("Имел в виду сферу, в которой вы работаете — опт, услуги, стройка, "
             "маркетплейсы, общепит, любое. Напишите одно слово, и пришлю 3 сценария, "
             "где ИИ снимает рутину: продажи, маркетинг, автоматизация.")
+
+
+_TICK_LOCK: "asyncio.Lock | None" = None
+
+
+def _lock() -> "asyncio.Lock":
+    """Один проход за раз: параллельные тики отправляли одно и то же дважды."""
+    global _TICK_LOCK
+    if _TICK_LOCK is None:
+        _TICK_LOCK = asyncio.Lock()
+    return _TICK_LOCK
 
 
 def stage2_campaign() -> int:
@@ -461,6 +472,15 @@ async def scan_client(client, account: str, limit: int = 15) -> list[str]:
 
 
 async def tick(pool, accounts: list[dict], limit: int = 15) -> list[str]:
+    out: list[str] = []
+    if _lock().locked():
+        # уже идёт проход — второй не нужен, иначе два одинаковых сообщения
+        return out
+    async with _lock():
+        return await _tick_inner(pool, accounts, limit)
+
+
+async def _tick_inner(pool, accounts: list[dict], limit: int = 15) -> list[str]:
     out: list[str] = []
     for acc in accounts:
         name = acc["session_name"]

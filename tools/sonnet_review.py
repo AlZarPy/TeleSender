@@ -21,7 +21,7 @@ from panel import db  # noqa: E402
 
 ENV_FILE = Path.home() / "AppData/Local/hermes/.env"
 API = "https://routerai.ru/api/v1/chat/completions"
-MODEL = "anthropic/claude-sonnet-5.5"
+MODEL = __import__("os").environ.get("SENDERX_REVIEW_MODEL", "deepseek/deepseek-v4.1-flash-1017")
 
 CODE_FILES = [
     "panel/worker.py", "panel/db.py", "panel/unique.py", "panel/antispam.py",

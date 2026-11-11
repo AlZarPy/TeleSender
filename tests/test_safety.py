@@ -63,9 +63,9 @@ def main() -> int:
     print("пауза перед ответом")
     import random as _rnd
     delays = [followup.reply_delay(_rnd.Random(s)) for s in range(300)]
-    check("пауза не меньше 5 с", min(delays) >= 5, f"минимум {min(delays)}")
-    check("пауза не больше 20 с", max(delays) <= 20, f"максимум {max(delays)}")
-    check("пауза не одинаковая", len(set(delays)) > 8, f"уникальных {len(set(delays))}")
+    check("пауза не меньше 3 с", min(delays) >= 3, f"минимум {min(delays)}")
+    check("пауза не больше 10 с", max(delays) <= 10, f"максимум {max(delays)}")
+    check("пауза не одинаковая", len(set(delays)) > 4, f"уникальных {len(set(delays))}")
     check("паузы разные", len(set(delays)) > 3, f"уникальных {len(set(delays))}")
 
     print("\nкулдаун: один ответ на диалог")

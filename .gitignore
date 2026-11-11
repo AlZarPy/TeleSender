@@ -38,3 +38,8 @@ panel.db.bak-*
 # вложения кампаний (локальные файлы)
 media/
 backups/
+
+# рабочие списки прокси и коды входа — только локально
+proxies*.txt
+!proxies.example.txt
+pending_code.json
